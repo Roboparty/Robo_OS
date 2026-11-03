@@ -1,5 +1,6 @@
 env
 *.pem
+*.asc
 scripts/__pycache__/
 scripts/key.md
 dist

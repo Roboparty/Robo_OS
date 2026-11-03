@@ -57,7 +57,7 @@ python3 -c 'import yaml; print("pyyaml ok")'
 
 ```bash
 sudo mkdir -p /srv/apt/conf
-sudo mkdir -p /srv/apt-incoming/{common,robopi1,robopi2,robopi3,x86}
+sudo mkdir -p /srv/apt-incoming/{common,robopi0,robopi1,robopi2,robopi3,x86}
 sudo mkdir -p /srv/winget/{manifests,packages}
 sudo chown -R "$(id -un):$(id -gn)" /srv/apt /srv/apt-incoming /srv/winget
 ```
@@ -73,7 +73,7 @@ sudo chown -R "$(id -un):$(id -gn)" /srv/apt /srv/apt-incoming /srv/winget
   db/
 
 /srv/apt-incoming/
-  common/ robopi1/ robopi2/ robopi3/ x86/
+  common/ robopi0/ robopi1/ robopi2/ robopi3/ x86/
 
 /srv/winget/
   manifests/
@@ -127,6 +127,14 @@ Codename: common
 Architectures: amd64 arm64 source
 Components: main
 Description: RoboParty common packages
+SignWith: <FINGERPRINT>
+
+Origin: RoboParty
+Label: RoboParty APT Repository
+Codename: robopi0
+Architectures: amd64 arm64 source
+Components: main
+Description: RoboParty RoboPi0 packages
 SignWith: <FINGERPRINT>
 
 Origin: RoboParty
@@ -575,7 +583,7 @@ Environment=ROUTE_DEBS_PROXY=http://<proxy>:<port>
 - `Architecture: all` 只构建一次。
 - C/C++ `Architecture: any` 包分别构建 amd64 和 arm64。
 - 板卡专用包只构建 arm64。
-- `roboparty-camera`、`roboparty_rp_head`、`roboparty-go` 暂不进入本轮发布。
+- `roboparty-camera`、`roboparty_rp_head`、`roboparty-start` 暂不进入本轮发布。
 - `roboparty_deb_template` 是模板，不计入发布包数量。
 - `robopi-config` 已废弃，不再构建；配置工具使用 `robopi-tui`。
 - `adbd` 源码已加入 `manifest.xml`，APT `common` 已有 `adbd 1.0.4-1`，但暂不计入本表 15 包/22 deb 目标。
@@ -600,12 +608,12 @@ Environment=ROUTE_DEBS_PROXY=http://<proxy>:<port>
 | `roboparty_lidar` | `0.1.1-1` | `any` | amd64 + arm64 |
 | `roboparty_onnxruntime` | `1.21.0-1` | `any` | amd64 + arm64 |
 | `robopi_addon` | `1.8.8-1` | `arm64` | 用户态板级工具；最新 release `v1.8.8` |
-| `robopi_tui` | `0.1.2` | `arm64` | 配置/诊断 TUI；依赖 `adbd`、`robopi-addon`、`roboparty-analyze`；暂无 GitHub Release，手工构建注入 |
+| `robopi_tui` | `1.1.2` | `all` | 配置/诊断 TUI；`Architecture: all`，arm64 全量插件、x86 仅 `generic` 插件；板端工具 `adbd`/`robopi-addon`/`roboparty-analyze` 在 arm64 以 Recommends 安装 |
 
 ### 包名说明
 
 - `robopi-config`：已废弃，APT 和 routing 中已移除。
-- `robopi-tui`：当前配置工具，依赖 `robopi-addon`、`roboparty-analyze` 和 `adbd`；自动同步会保留手工注入版本。
+- `robopi-tui`：当前配置工具；核心依赖 `python3`、`dialog`、`systemd`，板端工具 `adbd`、`robopi-addon`、`roboparty-analyze` 在 arm64 以 Recommends 安装。自动同步会保留手工注入版本。
 - `roboparty-analyze`：正式包名；`robopi-analyze` 过渡包已移除，不再发布。
-- `adbd`：源码已进入 manifest，APT 已有 `1.0.4-1`；由 `robopi-tui` 依赖自动安装，不再单独加入安装列表。
-- `roboparty-go`：当前不进入发布矩阵；自动同步的 stale cleanup 会将其从 APT 移除。
+- `adbd`：源码已进入 manifest，APT 已有 `1.0.4-1`；arm64 上由 `robopi-tui` 的 Recommends 默认安装，不再单独加入安装列表。
+- `roboparty-start`（旧名 `roboparty-go`）：当前不进入发布矩阵；自动同步的 stale cleanup 会将其从 APT 移除。

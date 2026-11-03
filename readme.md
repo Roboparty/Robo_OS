@@ -179,7 +179,7 @@ sudo apt-get update
 sudo apt-get install roboparty-motors
 ```
 
-可用 suite：`common` / `robopi1` / `robopi2` / `robopi3` / `x86`
+可用 suite：`common` / `robopi0` / `robopi1` / `robopi2` / `robopi3` / `x86`
 
 ---
 

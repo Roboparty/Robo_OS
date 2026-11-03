@@ -19,3 +19,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 scripts/dashboard.py routing.yaml
+
+      - name: Show version offsets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/version_offsets.py routing.yaml | tee -a "$GITHUB_STEP_SUMMARY"

@@ -11,7 +11,7 @@
 
 APT_DIR="/srv/apt"
 INCOMING_DIR="/srv/apt-incoming"
-SUITES=("common" "robopi1" "robopi2" "robopi3" "x86")
+SUITES=("common" "robopi0" "robopi1" "robopi2" "robopi3" "x86")
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
@@ -58,17 +58,44 @@ for suite in "${SUITES[@]}"; do
         for deb in "${debs[@]}"; do
             pkg_name=$(dpkg-deb -f "$deb" Package 2>/dev/null)
             pkg_arch=$(dpkg-deb -f "$deb" Architecture 2>/dev/null)
-            echo "👉 [注入] $pkg_name ($pkg_arch) : $(basename "$deb")"
-            
-            # 先卸载特定架构旧包防止Hash冲突
-            if [ -n "$pkg_arch" ] && [ "$pkg_arch" != "all" ]; then
-                reprepro -b "$APT_DIR" removefilter "$suite" "Package (== $pkg_name), Architecture (== $pkg_arch)" >/dev/null 2>&1
-            else
-                reprepro -b "$APT_DIR" remove "$suite" "$pkg_name" >/dev/null 2>&1
+            pkg_ver=$(dpkg-deb -f "$deb" Version 2>/dev/null)
+            if [ -z "$pkg_name" ] || [ -z "$pkg_arch" ] || [ -z "$pkg_ver" ]; then
+                echo "   ❌ 无法解析 deb 元数据，跳过: $(basename "$deb")"
+                continue
             fi
-            
-            # 注入新包并清理
+            echo "👉 [注入] $pkg_name ($pkg_arch) $pkg_ver : $(basename "$deb")"
+
+            # 先入库新包；旧包在新包成功入库前保留，避免入库失败后包消失。
+            injected=0
             if reprepro -b "$APT_DIR" includedeb "$suite" "$deb"; then
+                injected=1
+            else
+                # 同包同架构同版本重建会因 Hash 冲突被拒：仅移除该版本后重试。
+                echo "   ⚠️ 首次入库失败，尝试替换同版本旧包后重试..."
+                if [ "$pkg_arch" = "all" ]; then
+                    reprepro -b "$APT_DIR" removefilter "$suite" \
+                        "Package (== $pkg_name), Version (== $pkg_ver)" >/dev/null 2>&1
+                else
+                    reprepro -b "$APT_DIR" removefilter "$suite" \
+                        "Package (== $pkg_name), Architecture (== $pkg_arch), Version (== $pkg_ver)" >/dev/null 2>&1
+                fi
+                if reprepro -b "$APT_DIR" includedeb "$suite" "$deb"; then
+                    injected=1
+                fi
+            fi
+
+            if [ "$injected" -eq 1 ]; then
+                # 成功入库后再清理同包的其它版本。
+                if [ "$pkg_arch" = "all" ]; then
+                    # 新包改为 Architecture: all 时，清掉旧的按架构构建版本。
+                    reprepro -b "$APT_DIR" removefilter "$suite" \
+                        "Package (== $pkg_name), Architecture (!= all)" >/dev/null 2>&1
+                    reprepro -b "$APT_DIR" removefilter "$suite" \
+                        "Package (== $pkg_name), Version (!= $pkg_ver)" >/dev/null 2>&1
+                else
+                    reprepro -b "$APT_DIR" removefilter "$suite" \
+                        "Package (== $pkg_name), Architecture (== $pkg_arch), Version (!= $pkg_ver)" >/dev/null 2>&1
+                fi
                 rm -f "$deb"
                 echo "   ✅ 入库成功并已清理缓存: $(basename "$deb")"
             else

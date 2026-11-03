@@ -1,42 +1,56 @@
 # routing.yaml
-# repos     - 所有要下载的仓库
-# routing   - 每个 suite 的包匹配规则
-#             pattern:  包名 glob，版本号位用 * 占位
-#             version:  auto = 拉最新版本, 指定数字 = 锁定版本
-#             不写 version 默认就是 auto
+# APT 包同步路由（只处理 .deb，不是设备端 OTA 服务）。
+#
+# repos:     gh release download 的来源仓库。
+# routing:   每个 suite 的文件名 glob 规则。
+#            pattern: 包文件名 glob；version: auto（默认，取最新 Release）
+#            或指定版本（作为文件名子串匹配）。
+#
+# 本文件不提供版本协商、设备下载、签名、云端中继或远程日志；
+# 这些能力需要 rp_client / 云端 OTA 服务另行实现。
 
 repos:
+  # 基础与元包
   - Roboparty/roboparty_base
   - Roboparty/roboparty_description
   - Roboparty/roboparty_start
-  - Roboparty/roboparty_motors
   - Roboparty/roboparty_all
   - Roboparty/roboparty_example
+
+  # 运控与硬件
+  - Roboparty/roboparty_motors
   - Roboparty/roboparty_imu
   - Roboparty/roboparty_bms
   - Roboparty/roboparty_dexhand
   - Roboparty/roboparty_camera
   - Roboparty/roboparty_lidar
   - Roboparty/roboparty_inference
-  - Roboparty/roboparty_rp_server
   - Roboparty/roboparty_onnxruntime
-  # - Roboparty/roboparty_rp_head
+
+  # 服务与板端工具
+  - Roboparty/roboparty_rp_server
   - Roboparty/robopi_TUI
   - Roboparty/robopi_addon
   - Roboparty/roboparty_analyze
   - Roboparty/adbd
   - Roboparty/libsoem
-  # - Roboparty/igh-deb
   - Roboparty/roboparty_build
+
+  # release 存在，但当前未纳入 APT 路由；
+  # 如需通过 APT 分发，取消注释并添加 robopi-firmware_*_all.deb。
+  # - Roboparty/robopi_firmware
 
 routing:
   common:
+    # 基础与元包
     - pattern: "roboparty-base_*_all.deb"
     - pattern: "roboparty-description_*_all.deb"
+    # roboparty_start 仓库（旧名 roboparty_go）发布 roboparty-start。
     - pattern: "roboparty-start_*_all.deb"
     - pattern: "roboparty-example_*_all.deb"
     - pattern: "roboparty-all_*_all.deb"
 
+    # 运控与硬件
     - pattern: "roboparty-motors_*_amd64.deb"
     - pattern: "roboparty-motors_*_arm64.deb"
     - pattern: "roboparty-imu_*_amd64.deb"
@@ -49,51 +63,58 @@ routing:
     - pattern: "roboparty-inference_*_arm64.deb"
     - pattern: "roboparty-camera_*_amd64.deb"
     - pattern: "roboparty-camera_*_arm64.deb"
-    - pattern: "roboparty-lidar_*_amd64.deb"
-    - pattern: "roboparty-lidar_*_arm64.deb"
-
-    - pattern: "roboparty-rp-server_*_all.deb"
-    # - pattern: "roboparty-rp-head_*_amd64.deb"
-    # - pattern: "roboparty-rp-head_*_arm64.deb"
-
+    # lidar 自 0.1.1 起为 Architecture: all。
+    - pattern: "roboparty-lidar_*_all.deb"
     - pattern: "roboparty-onnxruntime_*_amd64.deb"
     - pattern: "roboparty-onnxruntime_*_arm64.deb"
 
-    - pattern: "libsoem-dev_*_amd64.deb"
-    - pattern: "libsoem-dev_*_arm64.deb"
-    - pattern: "robopi-tui_*_arm64.deb"
+    # 服务与板端工具
+    # rp_server 依赖 robopi-tui >= 1.1.2。
+    # robopi-tui 已改为 Architecture: all，_all.deb 同时服务 amd64 和 arm64。
+    - pattern: "roboparty-rp-server_*_all.deb"
+    - pattern: "robopi-tui_*_all.deb"
+    - pattern: "robopi-firmware_*_all.deb"
     - pattern: "robopi-addon_*_arm64.deb"
     - pattern: "adbd_*_amd64.deb"
     - pattern: "adbd_*_arm64.deb"
     - pattern: "roboparty-analyze_*_all.deb"
-     
-    # - pattern: "ethercat-igh_*_amd64.deb"
-    # - pattern: "ethercat-igh_*_arm64.deb"
+    # 当前 Release 只提供 amd64；arm64 规则保留，待发布后自动生效。
+    - pattern: "libsoem-dev_*_amd64.deb"
+    - pattern: "libsoem-dev_*_arm64.deb"
+    # IgH EtherCAT Master 用户态包（ethercat 工具、libethercat、头文件），
+    # 与内核模块分离，属于通用用户包；当前仅 arm64 构建。
+    - pattern: "ethercat-dev_*_arm64*.deb"
 
-  # robopi1:
-  #   - pattern: "linux-u-boot-current-robopi1_*_arm64.deb"
-  #     version: 1.2.8
-  #   - pattern: "linux-image-current-rockchip-rk3588_*_arm64.deb"
-  #     version: 1.2.8
-  #   - pattern: "linux-dtb-current-rockchip-rk3588_*_arm64.deb"
-  #     version: 1.2.8
-  #   - pattern: "linux-headers-current-rockchip-rk3588_*_arm64.deb"
-  #     version: 1.2.8
-  #   - pattern: "linux-image-current-rockchip-rk3588-dbg_*_arm64.deb"
-  #     version: 1.2.8
+    # 待启用
+
+  robopi0:
+    # RDK X5（hobot-x5, vendor-rt），对应 build-kernel.yml 的 rdk target。
+    - pattern: "linux-image-vendor-rt-hobot-x5_*_arm64*.deb"
+    - pattern: "linux-dtb-vendor-rt-hobot-x5_*_arm64*.deb"
+    - pattern: "linux-headers-vendor-rt-hobot-x5_*_arm64*.deb"
+    - pattern: "linux-libc-dev-vendor-rt-hobot-x5_*_arm64*.deb"
+
+  robopi1:
+    # Orange Pi 5 Plus，对应 build-kernel.yml 的 opi5plus target。
+    # 与 robopi2 共用同一份 rockchip64 kernel 源码/配置，kernel 包相同，复用同一组规则。
+    - pattern: "linux-image-current-rockchip64_*_arm64*.deb"
+    - pattern: "linux-dtb-current-rockchip64_*_arm64*.deb"
+    - pattern: "linux-headers-current-rockchip64_*_arm64*.deb"
+    - pattern: "linux-libc-dev-current-rockchip64_*_arm64*.deb"
+    - pattern: "linux-u-boot-orangepi5-plus-current_*_arm64*.deb"
+    - pattern: "armbian-bsp-cli-orangepi5-plus_*_arm64*.deb"
+    - pattern: "armbian-bsp-cli-orangepi5-plus-current_*_arm64*.deb"
 
   robopi2:
     # 对应 Roboparty/roboparty_build/.github/workflows/build-kernel.yml。
     # 下载源是 Release 附件；Actions artifact 不会被 route_debs.py 下载。
-    # 保留规则等待 BSP 发布，不写 version 默认取最新 Release。
+    # 不写 version 默认取最新 Release。
     # arm64 后的 * 同时兼容 _arm64.deb 和 _arm64__<构建标识>.deb。
     - pattern: "linux-image-current-rockchip64_*_arm64*.deb"
     - pattern: "linux-dtb-current-rockchip64_*_arm64*.deb"
     - pattern: "linux-headers-current-rockchip64_*_arm64*.deb"
     - pattern: "linux-libc-dev-current-rockchip64_*_arm64*.deb"
-    # u-boot 需要该 repo 另行产出后再启用（当前 kernel-only workflow 不产）：
-    # - pattern: "linux-u-boot-robopi2-current_*_arm64.deb"
+    # build-kernel.yml 的 find linux-*.deb 会一并收集 u-boot。
+    - pattern: "linux-u-boot-robopi2-current_*_arm64*.deb"
 
-    # adbd 已作为通用包放入 common。
-    # 保留 EtherCAT 路由；当前工作流未构建/收集此包，需后续启用产出。
-    - pattern: "ethercat-dev_*_arm64.deb"
+    # adbd、ethercat-dev 等用户态包统一放入 common，不在此重复。

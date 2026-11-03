@@ -14,7 +14,7 @@
   <project name="roboparty_camera" path="deb/roboparty_camera" />
   <project name="roboparty_description" path="deb/roboparty_description" />
   <project name="roboparty_dexhand" path="deb/roboparty_dexhand" />
-  <project name="roboparty_example" path="deb/roboparty_example" />
+  <!-- <project name="roboparty_example" path="deb/roboparty_example" /> -->
   <project name="roboparty_start" path="deb/roboparty_start" />
   <project name="roboparty_imu" path="deb/roboparty_imu" revision="master" />
   <project name="roboparty_inference" path="deb/roboparty_inference" revision="master" />

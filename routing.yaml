@@ -46,6 +46,8 @@ routing:
   common:
     # 基础与元包
     - pattern: "roboparty-base_*_all.deb"
+    # Armbian base-files（BSP CLI 依赖，版本跟随 VERSION）。
+    - pattern: "base-files_*_arm64*.deb"
     - pattern: "roboparty-description_*_all.deb"
     # roboparty_start 仓库（旧名 roboparty_go）发布 roboparty-start。
     - pattern: "roboparty-start_*_all.deb"

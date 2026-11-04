@@ -11,7 +11,7 @@
 
 APT_DIR="/srv/apt"
 INCOMING_DIR="/srv/apt-incoming"
-SUITES=("common" "robopi0" "robopi1" "robopi2" "robopi3" "x86")
+SUITES=("common" "robopi0" "robopi1" "robopi2" "robopi3" "robopi4" "x86")
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
@@ -24,8 +24,8 @@ export PATH=$PATH:/usr/bin:/bin
 command -v reprepro &>/dev/null || { echo "❌ [Bot] 缺少必备工具: reprepro"; exit 1; }
 
 if [ ! -d "$INCOMING_DIR" ]; then
-    echo "⚠️ [Bot] 找不到 incoming 目录: $INCOMING_DIR，跳过注入。"
-    exit 0
+    echo "❌ [Bot] 找不到 incoming 目录: $INCOMING_DIR"
+    exit 1
 fi
 
 echo "========================================"
@@ -33,17 +33,32 @@ echo " 🤖 RoboParty APT 自动注入机器人启动"
 echo " 时间: $(date)"
 echo "========================================"
 
+failures=0
+
 for suite in "${SUITES[@]}"; do
-    expected=$(python3 "$ROUTE_DEBS" --print-expected "$ROUTING" "$suite" 2>/dev/null)
+    expected=$(python3 "$ROUTE_DEBS" --print-expected "$ROUTING" "$suite")
+    if [ $? -ne 0 ]; then
+        echo "❌ [Bot] 读取 routing 失败: $suite"
+        failures=$((failures + 1))
+        expected=""
+    fi
     if [ -n "$expected" ]; then
-        current=$(reprepro -b "$APT_DIR" list "$suite" 2>/dev/null | sed 's/^[^:]*: //' | awk '{print $1}' | sort -u)
+        current=$(reprepro -b "$APT_DIR" list "$suite" | sed 's/^[^:]*: //' | awk '{print $1}' | sort -u)
+        if [ $? -ne 0 ]; then
+            echo "❌ [Bot] reprepro list 失败: $suite"
+            failures=$((failures + 1))
+            current=""
+        fi
         if [ -n "$current" ]; then
             stale=$(comm -23 <(echo "$current") <(echo "$expected"))
             if [ -n "$stale" ]; then
                 while IFS= read -r pkg; do
                     [ -z "$pkg" ] && continue
                     echo "🧹 清理残留包: $pkg ($suite)"
-                    reprepro -b "$APT_DIR" remove "$suite" "$pkg" >/dev/null 2>&1
+                    if ! reprepro -b "$APT_DIR" remove "$suite" "$pkg"; then
+                        echo "❌ [Bot] 清理失败: $pkg ($suite)"
+                        failures=$((failures + 1))
+                    fi
                 done <<< "$stale"
             fi
         fi
@@ -60,7 +75,8 @@ for suite in "${SUITES[@]}"; do
             pkg_arch=$(dpkg-deb -f "$deb" Architecture 2>/dev/null)
             pkg_ver=$(dpkg-deb -f "$deb" Version 2>/dev/null)
             if [ -z "$pkg_name" ] || [ -z "$pkg_arch" ] || [ -z "$pkg_ver" ]; then
-                echo "   ❌ 无法解析 deb 元数据，跳过: $(basename "$deb")"
+                echo "   ❌ 无法解析 deb 元数据: $(basename "$deb")"
+                failures=$((failures + 1))
                 continue
             fi
             echo "👉 [注入] $pkg_name ($pkg_arch) $pkg_ver : $(basename "$deb")"
@@ -100,6 +116,7 @@ for suite in "${SUITES[@]}"; do
                 echo "   ✅ 入库成功并已清理缓存: $(basename "$deb")"
             else
                 echo "   ❌ 入库失败，已保留文件: $(basename "$deb")"
+                failures=$((failures + 1))
             fi
         done
     fi
@@ -107,6 +124,13 @@ done
 
 # 清理无引用包
 echo "🧹 正在执行 deleteunreferenced 回收无效空间..."
-reprepro -b "$APT_DIR" deleteunreferenced >/dev/null 2>&1
+if ! reprepro -b "$APT_DIR" deleteunreferenced; then
+    echo "❌ [Bot] deleteunreferenced 失败"
+    failures=$((failures + 1))
+fi
 
+if [ "$failures" -gt 0 ]; then
+    echo "❌ 自动入库流程结束，$failures 项失败"
+    exit 1
+fi
 echo "🎉 自动入库流程执行完毕！"

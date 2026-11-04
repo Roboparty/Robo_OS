@@ -23,6 +23,7 @@ if ! flock -n 9; then
 fi
 
 echo "roboparty-apt-sync: start $(date -Is)"
-python3 scripts/route_debs.py routing.yaml "$INCOMING_DIR"
+python3 scripts/route_debs.py --strict routing.yaml "$INCOMING_DIR"
 bash scripts/bot_inject.sh
+python3 scripts/verify_apt.py "$INCOMING_DIR/manifest.json"
 echo "roboparty-apt-sync: done $(date -Is)"

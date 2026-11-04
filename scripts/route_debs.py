@@ -44,27 +44,54 @@ def _sha256(path):
     return digest.hexdigest()
 
 
+def _is_missing(text):
+    lower = text.lower()
+    return (
+        'http 404' in lower
+        or 'release not found' in lower
+        or 'no assets match' in lower
+        or 'no assets to download' in lower
+    )
+
+
 def _gh_json(args, env):
-    ret = subprocess.run(['gh', *args], capture_output=True, text=True,
-                         timeout=60, env=env)
-    if ret.returncode != 0:
-        return None, (ret.stderr or ret.stdout).strip()
-    try:
-        return json.loads(ret.stdout), None
-    except json.JSONDecodeError as exc:
-        return None, f'bad JSON: {exc}'
+    detail = ''
+    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        try:
+            ret = subprocess.run(['gh', *args], capture_output=True, text=True,
+                                 timeout=60, env=env)
+        except subprocess.TimeoutExpired:
+            detail = 'gh api timeout'
+        else:
+            if ret.returncode == 0:
+                try:
+                    return json.loads(ret.stdout), None
+                except json.JSONDecodeError as exc:
+                    detail = f'bad JSON: {exc}'
+            else:
+                detail = (ret.stderr or ret.stdout).strip()
+                if _is_missing(detail):
+                    return None, detail
+        if attempt < DOWNLOAD_RETRIES:
+            time.sleep(2 * attempt)
+    return None, detail
 
 
 def _download_with_mirror(repo, env):
+    failures = []
     data, error = _gh_json(['api', f'repos/{repo}/releases/latest'], env)
     if error:
-        print(f'   ⚠️ API 失败: {error[:500]}')
-        return
+        if _is_missing(error):
+            print('   ⏭️ 无 release，跳过。')
+        else:
+            print(f'   ❌ API 失败: {error[:500]}')
+            failures.append(f'{repo}: API: {error[:200]}')
+        return failures
     assets = data.get('assets', []) if isinstance(data, dict) else []
     debs = [item for item in assets if str(item.get('name', '')).endswith('.deb')]
     if not debs:
-        print('   ⚠️ release 无 .deb 资产，跳过。')
-        return
+        print('   ⏭️ release 无 .deb 资产，跳过。')
+        return failures
     for asset in debs:
         name = asset['name']
         url = f"{ASSET_MIRROR}/{asset['browser_download_url']}"
@@ -79,20 +106,26 @@ def _download_with_mirror(repo, env):
             ret = subprocess.run(command, capture_output=True, text=True,
                                  timeout=DOWNLOAD_TIMEOUT + 60, env=env)
         except subprocess.TimeoutExpired:
-            print(f'   ⚠️ 下载超时（{DOWNLOAD_TIMEOUT}s）: {name}')
+            print(f'   ❌ 下载超时（{DOWNLOAD_TIMEOUT}s）: {name}')
+            failures.append(f'{repo}/{name}: download timeout')
             continue
         if ret.returncode != 0:
-            print(f'   ⚠️ 下载失败: {name}: {(ret.stderr or ret.stdout).strip()[:300]}')
+            detail = (ret.stderr or ret.stdout).strip()
+            print(f'   ❌ 下载失败: {name}: {detail[:300]}')
+            failures.append(f'{repo}/{name}: download failed')
             continue
         digest = str(asset.get('digest') or '')
         if digest.startswith('sha256:') and _sha256(dest) != digest[7:]:
             print(f'   ❌ 校验失败: {name}')
             os.remove(dest)
+            failures.append(f'{repo}/{name}: digest mismatch')
             continue
         print(f'   ✅ {name}')
+    return failures
 
 
 def _download_with_gh(repo, env):
+    detail = ''
     for attempt in range(1, DOWNLOAD_RETRIES + 1):
         try:
             ret = subprocess.run(
@@ -100,15 +133,20 @@ def _download_with_gh(repo, env):
                 capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT, env=env,
             )
         except subprocess.TimeoutExpired:
-            print(f'   ⚠️ 下载超时（{DOWNLOAD_TIMEOUT}s），第 {attempt} 次')
+            detail = f'timeout after {DOWNLOAD_TIMEOUT}s'
+            print(f'   ❌ 下载超时（{DOWNLOAD_TIMEOUT}s），第 {attempt} 次')
         else:
             if ret.returncode == 0:
-                return
-            detail = (ret.stderr or ret.stdout).strip()[:300]
-            print(f'   ⚠️ 第 {attempt} 次下载失败: {detail}')
+                return []
+            detail = (ret.stderr or ret.stdout).strip()
+            if _is_missing(detail):
+                print('   ⏭️ 无 release/deb 资产，跳过。')
+                return []
+            print(f'   ❌ 第 {attempt} 次下载失败: {detail[:300]}')
         if attempt < DOWNLOAD_RETRIES:
             time.sleep(3 * attempt)
-    print('   ⚠️ 跳过该仓库')
+    print('   ❌ 跳过该仓库')
+    return [f'{repo}: download failed: {detail[:200]}']
 
 
 def download_all(repos):
@@ -128,12 +166,14 @@ def download_all(repos):
     if ASSET_MIRROR:
         print(f'ℹ️ 使用 Release 资产镜像: {ASSET_MIRROR}')
 
+    failures = []
     for repo in repos:
         print(f'📥 拉取 {repo} ...')
         if ASSET_MIRROR:
-            _download_with_mirror(repo, env)
+            failures.extend(_download_with_mirror(repo, env))
         else:
-            _download_with_gh(repo, env)
+            failures.extend(_download_with_gh(repo, env))
+    return failures
 
 
 def route_all(routing, incoming):
@@ -176,7 +216,13 @@ def route_all(routing, incoming):
             print(f'   📍 {basename} -> {s}')
             shutil.copy2(src, os.path.join(incoming, s, basename))
 
-        manifest.append({'deb': basename, 'suites': dests})
+        manifest.append({
+            'deb': basename,
+            'suites': dests,
+            'package': _deb_field(src, 'Package'),
+            'version': _deb_field(src, 'Version'),
+            'architecture': _deb_field(src, 'Architecture'),
+        })
 
     return manifest
 
@@ -207,13 +253,16 @@ def print_version_summary(manifest, incoming):
 
 
 def main():
-    if '--print-expected' in sys.argv:
-        idx = sys.argv.index('--print-expected')
-        if idx + 2 >= len(sys.argv):
+    argv = [arg for arg in sys.argv[1:] if arg != '--strict']
+    strict = len(argv) != len(sys.argv) - 1
+
+    if '--print-expected' in argv:
+        idx = argv.index('--print-expected')
+        if idx + 2 >= len(argv):
             print('Usage: route_debs.py --print-expected <routing.yaml> <suite>', file=sys.stderr)
-            sys.exit(1)
-        config_path = sys.argv[idx + 1]
-        suite = sys.argv[idx + 2]
+            return 1
+        config_path = argv[idx + 1]
+        suite = argv[idx + 2]
         with open(config_path) as f:
             config = yaml.safe_load(f)
         routing = config.get('routing', {})
@@ -224,14 +273,14 @@ def main():
                 packages.add(pkg)
             for pkg in sorted(packages):
                 print(pkg)
-        sys.exit(0)
+        return 0
 
-    if len(sys.argv) < 3:
-        print('Usage: route_debs.py <routing.yaml> <incoming_dir>')
-        sys.exit(1)
+    if len(argv) < 2:
+        print('Usage: route_debs.py [--strict] <routing.yaml> <incoming_dir>')
+        return 1
 
-    config_path = sys.argv[1]
-    incoming = sys.argv[2]
+    config_path = argv[0]
+    incoming = argv[1]
 
     with open(config_path) as f:
         config = yaml.safe_load(f)
@@ -242,7 +291,7 @@ def main():
     print('=' * 50)
     print('  阶段 1: 下载所有仓库的 release .deb')
     print('=' * 50)
-    download_all(repos)
+    failures = download_all(repos)
 
     print()
     print('=' * 50)
@@ -260,6 +309,15 @@ def main():
 
     print(f'\n✅ 分拣完成，共 {len(manifest)} 个包，清单: {manifest_path}')
 
+    if failures:
+        print(f'\n❌ {len(failures)} 个下载/校验失败:')
+        for failure in failures:
+            print(f'  - {failure}')
+        if strict:
+            print('❌ strict 模式：下载或校验失败，退出非零')
+            return 1
+    return 0
+
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

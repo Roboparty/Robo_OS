@@ -26,6 +26,11 @@ jobs:
       - name: Download & route
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The APT host can reach api.github.com but not github.com or
+          # objects.githubusercontent.com. Download release assets via a
+          # reachable mirror; route_debs.py verifies the API digest.
+          ROUTE_DEBS_ASSET_MIRROR: https://ghfast.top
+          ROUTE_DEBS_TIMEOUT: "900"
         run: python3 scripts/route_debs.py routing.yaml /srv/apt-incoming/
 
       - name: Inject into APT repo

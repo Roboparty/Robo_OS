@@ -6,16 +6,23 @@
 """route_debs.py - 下载所有 repo 的 deb，集中后按 routing.yaml 分拣到 incoming/<suite>/"""
 
 import fnmatch
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 
 import yaml
 
 TMP_DIR = 'tmp_debs'
 MANIFEST_FILE = 'manifest.json'
+DOWNLOAD_TIMEOUT = int(os.environ.get('ROUTE_DEBS_TIMEOUT', '900'))
+DOWNLOAD_RETRIES = max(1, int(os.environ.get('ROUTE_DEBS_RETRIES', '3')))
+# Optional release-asset mirror, e.g. https://ghfast.top. The GitHub API still
+# lists assets; only the asset host is rewritten.
+ASSET_MIRROR = os.environ.get('ROUTE_DEBS_ASSET_MIRROR', '').rstrip('/')
 
 
 def _deb_field(deb_path: str, field: str) -> str:
@@ -27,6 +34,81 @@ def _deb_field(deb_path: str, field: str) -> str:
         return r.stdout.strip()
     except Exception:
         return "?"
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _gh_json(args, env):
+    ret = subprocess.run(['gh', *args], capture_output=True, text=True,
+                         timeout=60, env=env)
+    if ret.returncode != 0:
+        return None, (ret.stderr or ret.stdout).strip()
+    try:
+        return json.loads(ret.stdout), None
+    except json.JSONDecodeError as exc:
+        return None, f'bad JSON: {exc}'
+
+
+def _download_with_mirror(repo, env):
+    data, error = _gh_json(['api', f'repos/{repo}/releases/latest'], env)
+    if error:
+        print(f'   ⚠️ API 失败: {error[:500]}')
+        return
+    assets = data.get('assets', []) if isinstance(data, dict) else []
+    debs = [item for item in assets if str(item.get('name', '')).endswith('.deb')]
+    if not debs:
+        print('   ⚠️ release 无 .deb 资产，跳过。')
+        return
+    for asset in debs:
+        name = asset['name']
+        url = f"{ASSET_MIRROR}/{asset['browser_download_url']}"
+        dest = os.path.join(TMP_DIR, name)
+        command = [
+            'curl', '-L', '--fail', '--silent', '--show-error',
+            '--retry', str(DOWNLOAD_RETRIES), '--retry-delay', '3',
+            '--connect-timeout', '20', '--max-time', str(DOWNLOAD_TIMEOUT),
+            '-o', dest, url,
+        ]
+        try:
+            ret = subprocess.run(command, capture_output=True, text=True,
+                                 timeout=DOWNLOAD_TIMEOUT + 60, env=env)
+        except subprocess.TimeoutExpired:
+            print(f'   ⚠️ 下载超时（{DOWNLOAD_TIMEOUT}s）: {name}')
+            continue
+        if ret.returncode != 0:
+            print(f'   ⚠️ 下载失败: {name}: {(ret.stderr or ret.stdout).strip()[:300]}')
+            continue
+        digest = str(asset.get('digest') or '')
+        if digest.startswith('sha256:') and _sha256(dest) != digest[7:]:
+            print(f'   ❌ 校验失败: {name}')
+            os.remove(dest)
+            continue
+        print(f'   ✅ {name}')
+
+
+def _download_with_gh(repo, env):
+    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        try:
+            ret = subprocess.run(
+                ['gh', 'release', 'download', '-R', repo, '-p', '*.deb', '-D', TMP_DIR],
+                capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT, env=env,
+            )
+        except subprocess.TimeoutExpired:
+            print(f'   ⚠️ 下载超时（{DOWNLOAD_TIMEOUT}s），第 {attempt} 次')
+        else:
+            if ret.returncode == 0:
+                return
+            detail = (ret.stderr or ret.stdout).strip()[:300]
+            print(f'   ⚠️ 第 {attempt} 次下载失败: {detail}')
+        if attempt < DOWNLOAD_RETRIES:
+            time.sleep(3 * attempt)
+    print('   ⚠️ 跳过该仓库')
 
 
 def download_all(repos):
@@ -43,17 +125,15 @@ def download_all(repos):
         env['HTTPS_PROXY'] = proxy
         env['https_proxy'] = proxy
 
+    if ASSET_MIRROR:
+        print(f'ℹ️ 使用 Release 资产镜像: {ASSET_MIRROR}')
+
     for repo in repos:
         print(f'📥 拉取 {repo} ...')
-        try:
-            ret = subprocess.run(
-                ['gh', 'release', 'download', '-R', repo, '-p', '*.deb', '-D', TMP_DIR],
-                capture_output=True, text=True, timeout=300, env=env,
-            )
-            if ret.returncode != 0:
-                print(f'   ⚠️ 无 release 或下载失败，跳过。')
-        except subprocess.TimeoutExpired:
-            print(f'   ⚠️ 下载超时（300s），跳过。')
+        if ASSET_MIRROR:
+            _download_with_mirror(repo, env)
+        else:
+            _download_with_gh(repo, env)
 
 
 def route_all(routing, incoming):

@@ -36,6 +36,7 @@ repos:
   - Roboparty/libsoem
   - Roboparty/roboparty_build
   - Roboparty/roboparty_rp_head
+  - Roboparty/roboparty_rdk
 
   # release 存在，但当前未纳入 APT 路由；
   # 如需通过 APT 分发，取消注释并添加 robopi-firmware_*_all.deb。
@@ -96,6 +97,19 @@ routing:
     - pattern: "linux-dtb-vendor-rt-hobot-x5_*_arm64*.deb"
     - pattern: "linux-headers-vendor-rt-hobot-x5_*_arm64*.deb"
     - pattern: "linux-libc-dev-vendor-rt-hobot-x5_*_arm64*.deb"
+    # Armbian 路由：用占位包满足 hobot-* 依赖，不装厂商内核
+    - pattern: "roboparty-hobot-boot_*_arm64.deb"
+    - pattern: "roboparty-hobot-dtb_*_arm64.deb"
+    - pattern: "roboparty-compat_*_arm64.deb"
+    # RoboParty 构建的用户态 hobot-* 包
+    - pattern: "hobot-miniboot_*_arm64.deb"
+    - pattern: "hobot-io_*_arm64.deb"
+    - pattern: "hobot-multimedia_*_arm64.deb"
+    - pattern: "hobot-multimedia-dev_*_arm64.deb"
+    - pattern: "hobot-dnn_*_arm64.deb"
+    - pattern: "hobot-camera_*_arm64.deb"
+    - pattern: "hobot-spdev_*_arm64.deb"
+    - pattern: "hobot-wifi_*_arm64.deb"
 
   robopi1:
     # Orange Pi 5 Plus，对应 build-kernel.yml 的 opi5plus target。
@@ -121,3 +135,12 @@ routing:
     - pattern: "linux-u-boot-robopi2-current_*_arm64*.deb"
 
     # adbd、ethercat-dev 等用户态包统一放入 common，不在此重复。
+
+  robopi4:
+    # Jetson Orin NX（tegra234, l4t39），对应 build-kernel.yml 的 robopi4 target。
+    # L4T 负责刷写，Apt 只分发 kernel 与 BSP 包。
+    - pattern: "linux-image-l4t39-tegra234_*_arm64*.deb"
+    - pattern: "linux-dtb-l4t39-tegra234_*_arm64*.deb"
+    - pattern: "linux-headers-l4t39-tegra234_*_arm64*.deb"
+    - pattern: "linux-libc-dev-l4t39-tegra234_*_arm64*.deb"
+    - pattern: "armbian-bsp-cli-jetson-orin-nx-l4t39_*_arm64*.deb"

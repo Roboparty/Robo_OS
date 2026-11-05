@@ -74,6 +74,7 @@ for suite in "${SUITES[@]}"; do
             pkg_name=$(dpkg-deb -f "$deb" Package 2>/dev/null)
             pkg_arch=$(dpkg-deb -f "$deb" Architecture 2>/dev/null)
             pkg_ver=$(dpkg-deb -f "$deb" Version 2>/dev/null)
+            pkg_section=$(dpkg-deb -f "$deb" Section 2>/dev/null || true)
             if [ -z "$pkg_name" ] || [ -z "$pkg_arch" ] || [ -z "$pkg_ver" ]; then
                 echo "   ❌ 无法解析 deb 元数据: $(basename "$deb")"
                 failures=$((failures + 1))
@@ -81,9 +82,16 @@ for suite in "${SUITES[@]}"; do
             fi
             echo "👉 [注入] $pkg_name ($pkg_arch) $pkg_ver : $(basename "$deb")"
 
+            # Some D-Robotics debs omit Section/Priority; reprepro rejects
+            # them with "No section given". Supply Debian defaults only then.
+            reprepro_extra=()
+            if [ -z "$pkg_section" ]; then
+                reprepro_extra=(-S misc -P optional)
+            fi
+
             # 先入库新包；旧包在新包成功入库前保留，避免入库失败后包消失。
             injected=0
-            if reprepro -b "$APT_DIR" includedeb "$suite" "$deb"; then
+            if reprepro -b "$APT_DIR" "${reprepro_extra[@]}" includedeb "$suite" "$deb"; then
                 injected=1
             else
                 # 同包同架构同版本重建会因 Hash 冲突被拒：仅移除该版本后重试。
@@ -95,7 +103,7 @@ for suite in "${SUITES[@]}"; do
                     reprepro -b "$APT_DIR" removefilter "$suite" \
                         "Package (== $pkg_name), Architecture (== $pkg_arch), Version (== $pkg_ver)" >/dev/null 2>&1
                 fi
-                if reprepro -b "$APT_DIR" includedeb "$suite" "$deb"; then
+                if reprepro -b "$APT_DIR" "${reprepro_extra[@]}" includedeb "$suite" "$deb"; then
                     injected=1
                 fi
             fi

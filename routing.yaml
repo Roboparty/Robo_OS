@@ -37,10 +37,7 @@ repos:
   - Roboparty/roboparty_build
   - Roboparty/roboparty_rp_head
   - Roboparty/roboparty_rdk
-
-  # release 存在，但当前未纳入 APT 路由；
-  # 如需通过 APT 分发，取消注释并添加 robopi-firmware_*_all.deb。
-  # - Roboparty/robopi_firmware
+  - Roboparty/robopi_firmware
 
 routing:
   common:

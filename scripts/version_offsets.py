@@ -18,7 +18,7 @@ import yaml
 
 API = "https://api.github.com"
 APT = "https://apt.roboparty.com"
-SUITES = ("common", "robopi0", "robopi1", "robopi2", "robopi3", "x86")
+SUITES = ("common", "robopi0", "robopi1", "robopi2", "robopi3", "robopi4", "x86")
 ARCHES = ("arm64", "amd64", "all")
 DEB_RE = re.compile(r"^([^_]+)_([^_]+)_(all|arm64|amd64|armhf|i386)(?:__.*)?\.deb$")
 

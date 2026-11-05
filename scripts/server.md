@@ -57,7 +57,7 @@ python3 -c 'import yaml; print("pyyaml ok")'
 
 ```bash
 sudo mkdir -p /srv/apt/conf
-sudo mkdir -p /srv/apt-incoming/{common,robopi0,robopi1,robopi2,robopi3,x86}
+sudo mkdir -p /srv/apt-incoming/{common,robopi0,robopi1,robopi2,robopi3,robopi4,x86}
 sudo mkdir -p /srv/winget/{manifests,packages}
 sudo chown -R "$(id -un):$(id -gn)" /srv/apt /srv/apt-incoming /srv/winget
 ```
@@ -73,7 +73,7 @@ sudo chown -R "$(id -un):$(id -gn)" /srv/apt /srv/apt-incoming /srv/winget
   db/
 
 /srv/apt-incoming/
-  common/ robopi0/ robopi1/ robopi2/ robopi3/ x86/
+  common/ robopi0/ robopi1/ robopi2/ robopi3/ robopi4/ x86/
 
 /srv/winget/
   manifests/
@@ -159,6 +159,14 @@ Codename: robopi3
 Architectures: amd64 arm64 source
 Components: main
 Description: RoboParty RoboPi3 packages
+SignWith: <FINGERPRINT>
+
+Origin: RoboParty
+Label: RoboParty APT Repository
+Codename: robopi4
+Architectures: amd64 arm64 source
+Components: main
+Description: RoboParty RoboPi4 packages
 SignWith: <FINGERPRINT>
 
 Origin: RoboParty

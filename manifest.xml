@@ -31,10 +31,10 @@
   <!-- <project name="robopi_analyze" path="deb/robopi_analyze" /> -->
   <project name="adbd" path="deb/adbd" />
   <project name="SOEM" path="deb/SOEM" />
+  <project name="roboparty_rdk" path="deb/roboparty_rdk" />
   <!-- <project name="igh-deb" path="deb/igh-deb" revision="master" /> -->
 
   <!-- <project name="roboparty_image" path="bsp/roboparty_image" revision="next" /> -->
   <project name="roboparty_build" path="bsp/roboparty_build" />
-  <!-- <project name="roboparty_rdk" path="bsp/roboparty_rdk" /> -->
 
 </manifest>

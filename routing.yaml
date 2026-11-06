@@ -15,7 +15,6 @@ repos:
   - Roboparty/roboparty_description
   - Roboparty/roboparty_start
   - Roboparty/roboparty_all
-  - Roboparty/roboparty_example
 
   # 运控与硬件
   - Roboparty/roboparty_motors
@@ -48,7 +47,6 @@ routing:
     - pattern: "roboparty-description_*_all.deb"
     # roboparty_start 仓库（旧名 roboparty_go）发布 roboparty-start。
     - pattern: "roboparty-start_*_all.deb"
-    - pattern: "roboparty-example_*_all.deb"
     - pattern: "roboparty-all_*_all.deb"
 
     # 运控与硬件

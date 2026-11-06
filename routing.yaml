@@ -74,11 +74,11 @@ routing:
     # robopi-tui 已改为 Architecture: all，_all.deb 同时服务 amd64 和 arm64。
     - pattern: "roboparty-rp-server_*_all.deb"
     - pattern: "robopi-tui_*_all.deb"
-    - pattern: "robopi-firmware_*_all.deb"
-    - pattern: "robopi-addon_*_arm64.deb"
     - pattern: "adbd_*_amd64.deb"
     - pattern: "adbd_*_arm64.deb"
     - pattern: "roboparty-analyze_*_all.deb"
+    # MediaTek/Armbian firmware baseline; all arm64 boards.
+    - pattern: "robopi-firmware_*_arm64.deb"
     # 当前 Release 只提供 amd64；arm64 规则保留，待发布后自动生效。
     - pattern: "libsoem-dev_*_amd64.deb"
     - pattern: "libsoem-dev_*_arm64.deb"
@@ -130,6 +130,8 @@ routing:
     - pattern: "linux-libc-dev-current-rockchip64_*_arm64*.deb"
     # build-kernel.yml 的 find linux-*.deb 会一并收集 u-boot。
     - pattern: "linux-u-boot-robopi2-current_*_arm64*.deb"
+    # RK3588S-only addon.
+    - pattern: "robopi-addon_*_arm64.deb"
 
     # adbd、ethercat-dev 等用户态包统一放入 common，不在此重复。
 

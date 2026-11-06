@@ -22,7 +22,14 @@ DOWNLOAD_TIMEOUT = int(os.environ.get('ROUTE_DEBS_TIMEOUT', '900'))
 DOWNLOAD_RETRIES = max(1, int(os.environ.get('ROUTE_DEBS_RETRIES', '3')))
 # Optional release-asset mirror, e.g. https://ghfast.top. The GitHub API still
 # lists assets; only the asset host is rewritten.
-ASSET_MIRROR = os.environ.get('ROUTE_DEBS_ASSET_MIRROR', '').rstrip('/')
+ASSET_MIRRORS = [
+    item.strip().rstrip('/')
+    for item in os.environ.get(
+        'ROUTE_DEBS_ASSET_MIRRORS',
+        os.environ.get('ROUTE_DEBS_ASSET_MIRROR', ''),
+    ).split(',')
+    if item.strip()
+]
 
 
 def _deb_field(deb_path: str, field: str) -> str:
@@ -94,25 +101,32 @@ def _download_with_mirror(repo, env):
         return failures
     for asset in debs:
         name = asset['name']
-        url = f"{ASSET_MIRROR}/{asset['browser_download_url']}"
         dest = os.path.join(TMP_DIR, name)
-        command = [
-            'curl', '-L', '--fail', '--silent', '--show-error',
-            '--retry', str(DOWNLOAD_RETRIES), '--retry-delay', '3',
-            '--connect-timeout', '20', '--max-time', str(DOWNLOAD_TIMEOUT),
-            '-o', dest, url,
-        ]
-        try:
-            ret = subprocess.run(command, capture_output=True, text=True,
-                                 timeout=DOWNLOAD_TIMEOUT + 60, env=env)
-        except subprocess.TimeoutExpired:
-            print(f'   ❌ 下载超时（{DOWNLOAD_TIMEOUT}s）: {name}')
-            failures.append(f'{repo}/{name}: download timeout')
-            continue
-        if ret.returncode != 0:
+        downloaded = False
+        errors = []
+        for mirror in ASSET_MIRRORS:
+            url = f"{mirror}/{asset['browser_download_url']}"
+            command = [
+                'curl', '-L', '--fail', '--silent', '--show-error',
+                '--retry', str(DOWNLOAD_RETRIES), '--retry-delay', '3',
+                '--connect-timeout', '20', '--max-time', str(DOWNLOAD_TIMEOUT),
+                '-o', dest, url,
+            ]
+            try:
+                ret = subprocess.run(command, capture_output=True, text=True,
+                                     timeout=DOWNLOAD_TIMEOUT + 60, env=env)
+            except subprocess.TimeoutExpired:
+                errors.append(f'{mirror}: timeout')
+                print(f'   ❌ 下载超时（{DOWNLOAD_TIMEOUT}s）: {name} via {mirror}')
+                continue
+            if ret.returncode == 0:
+                downloaded = True
+                break
             detail = (ret.stderr or ret.stdout).strip()
-            print(f'   ❌ 下载失败: {name}: {detail[:300]}')
-            failures.append(f'{repo}/{name}: download failed')
+            errors.append(f'{mirror}: {detail[:160]}')
+            print(f'   ❌ 下载失败: {name} via {mirror}: {detail[:300]}')
+        if not downloaded:
+            failures.append(f'{repo}/{name}: download failed ({"; ".join(errors)})')
             continue
         digest = str(asset.get('digest') or '')
         if digest.startswith('sha256:') and _sha256(dest) != digest[7:]:
@@ -163,13 +177,13 @@ def download_all(repos):
         env['HTTPS_PROXY'] = proxy
         env['https_proxy'] = proxy
 
-    if ASSET_MIRROR:
-        print(f'ℹ️ 使用 Release 资产镜像: {ASSET_MIRROR}')
+    if ASSET_MIRRORS:
+        print(f'ℹ️ 使用 Release 资产镜像: {", ".join(ASSET_MIRRORS)}')
 
     failures = []
     for repo in repos:
         print(f'📥 拉取 {repo} ...')
-        if ASSET_MIRROR:
+        if ASSET_MIRRORS:
             failures.extend(_download_with_mirror(repo, env))
         else:
             failures.extend(_download_with_gh(repo, env))

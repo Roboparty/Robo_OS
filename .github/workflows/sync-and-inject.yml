@@ -26,10 +26,9 @@ jobs:
       - name: Download & route
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The APT host can reach api.github.com but not github.com or
-          # objects.githubusercontent.com. Download release assets via a
-          # reachable mirror; route_debs.py verifies the API digest.
-          ROUTE_DEBS_ASSET_MIRRORS: https://ghfast.top,https://gh-proxy.com
+          # The APT host reaches GitHub through its local proxy. Public
+          # mirrors return 504 on large assets, so download directly.
+          ROUTE_DEBS_PROXY: http://127.0.0.1:7890
           ROUTE_DEBS_TIMEOUT: "900"
         run: python3 scripts/route_debs.py --strict routing.yaml /srv/apt-incoming/
 

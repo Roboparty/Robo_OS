@@ -22,12 +22,19 @@ repos:
   - Roboparty/roboparty_bms
   - Roboparty/roboparty_dexhand
   - Roboparty/roboparty_camera
+  - Roboparty/OrbbecSDK_v2
   - Roboparty/roboparty_lidar
+  - Roboparty/roboparty_navigation
+  - Roboparty/Livox-SDK2
+  - Roboparty/livox_ros_driver2
+  - Roboparty/nlink_parser_ros2
+  - Roboparty/serial
   - Roboparty/roboparty_inference
   - Roboparty/roboparty_onnxruntime
 
   # 服务与板端工具
   - Roboparty/roboparty_rp_server
+  - Roboparty/roboparty_log_server
   - Roboparty/robopi_TUI
   - Roboparty/robopi_addon
   - Roboparty/roboparty_analyze
@@ -62,8 +69,26 @@ routing:
     - pattern: "roboparty-inference_*_arm64.deb"
     - pattern: "roboparty-camera_*_amd64.deb"
     - pattern: "roboparty-camera_*_arm64.deb"
-    # lidar 自 0.1.1 起为 Architecture: all。
-    - pattern: "roboparty-lidar_*_all.deb"
+    # Orbbec SDK v2（debian/control: Package orbbecsdk, Architecture any）。
+    - pattern: "orbbecsdk_*_amd64.deb"
+    - pattern: "orbbecsdk_*_arm64.deb"
+    - pattern: "roboparty-lidar_*_amd64.deb"
+    - pattern: "roboparty-lidar_*_arm64.deb"
+    - pattern: "roboparty-localization_*_amd64.deb"
+    - pattern: "roboparty-localization_*_arm64.deb"
+    - pattern: "roboparty-navigation_*_amd64.deb"
+    - pattern: "roboparty-navigation_*_arm64.deb"
+    - pattern: "livox-sdk2_*_amd64.deb"
+    - pattern: "livox-sdk2_*_arm64.deb"
+    - pattern: "livox-sdk2-dev_*_amd64.deb"
+    - pattern: "livox-sdk2-dev_*_arm64.deb"
+    - pattern: "livox-ros-driver2_*_amd64.deb"
+    - pattern: "livox-ros-driver2_*_arm64.deb"
+    # UWB 定位：nlink_parser_ros2 依赖独立的 ros-jazzy-serial。
+    - pattern: "nlink-parser-ros2_*_amd64.deb"
+    - pattern: "nlink-parser-ros2_*_arm64.deb"
+    - pattern: "ros-jazzy-serial_*_amd64.deb"
+    - pattern: "ros-jazzy-serial_*_arm64.deb"
     - pattern: "roboparty-onnxruntime_*_amd64.deb"
     - pattern: "roboparty-onnxruntime_*_arm64.deb"
     - pattern: "roboparty-rp-head_*_amd64.deb"
@@ -73,6 +98,7 @@ routing:
     # rp_server 依赖 robopi-tui >= 1.1.2。
     # robopi-tui 已改为 Architecture: all，_all.deb 同时服务 amd64 和 arm64。
     - pattern: "roboparty-rp-server_*_all.deb"
+    - pattern: "roboparty-log-server_*_all.deb"
     - pattern: "robopi-tui_*_all.deb"
     - pattern: "adbd_*_amd64.deb"
     - pattern: "adbd_*_arm64.deb"

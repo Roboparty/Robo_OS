@@ -613,7 +613,9 @@ Environment=ROUTE_DEBS_PROXY=http://<proxy>:<port>
 | `roboparty_bms` | `1.6.0-1` | `any` | amd64 + arm64 |
 | `roboparty_dexhand` | `0.5.0-1` | `any` | amd64 + arm64 |
 | `roboparty_inference` | `1.2.1-1` | `any` | amd64 + arm64 |
-| `roboparty_lidar` | `0.1.1-1` | `any` | amd64 + arm64 |
+| `roboparty_lidar` | `0.2.0-1` | `any` | amd64 + arm64；Livox SDK2 + MID-360 |
+| `Livox-SDK2` | `1.3.1-1` | `any` | Livox SDK2；RoboParty fork |
+| `livox_ros_driver2` | `1.2.6-1` | `any` | 官方驱动；ROS 2 Jazzy，安装到 /opt/roboparty |
 | `roboparty_onnxruntime` | `1.21.0-1` | `any` | amd64 + arm64 |
 | `robopi_addon` | `1.8.8-1` | `arm64` | 用户态板级工具；最新 release `v1.8.8` |
 | `robopi_tui` | `1.1.2` | `all` | 配置/诊断 TUI；`Architecture: all`，arm64 全量插件、x86 仅 `generic` 插件；板端工具 `adbd`/`robopi-addon`/`roboparty-analyze` 在 arm64 以 Recommends 安装 |

@@ -1,0 +1,1304 @@
+diff --git a/README.md b/README.md
+index dfc5787..c5d691a 100644
+--- a/README.md
++++ b/README.md
+@@ -67,6 +67,98 @@ counter) is also supported via devicetree overlays. Check the description for th
+ [cannectivity](app/dts/bindings/cannectivity.yaml) devicetree binding and [example devicetree
+ overlays](app/boards).
+ 
++### STM32 Nucleo USB FS Gateways
++
++The following application overlays enable all listed CAN channels, CAN FD, USB full speed
++on PA11/PA12, and a 32-bit TIM2 timestamp counter at 1 MHz. These are reference configurations
++for external CAN FD transceivers, not complete USB-to-CAN hardware designs. Channel numbers
++start at zero and follow FDCAN1, FDCAN2, FDCAN3. No GPIO-controlled termination is assumed.
++
++| Zephyr board | Channels | Flash / total SRAM (KiB) | Default application RAM (KiB) | CAN kernel (MHz) | CAN RX/TX pins, in channel order |
++| --- | ---: | ---: | ---: | ---: | --- |
++| `nucleo_g0b1re` | 2 | 512 / 144 | 144 | 60 | PB8/PB9, PB12/PB13 |
++| `nucleo_g474re` | 3 | 512 / 128 | 128 | 80 | PB8/PB9, PB12/PB13, PA8/PA15 |
++| `nucleo_g491re` | 2 | 512 / 112 | 112 | 80 | PB8/PB9, PB12/PB13 |
++| `nucleo_g564re` (experimental) | 3 | 512 / 112 | 112 | 80 | PA6/PA7, PA4/PA5, PA8/PB7 |
++| `nucleo_h533re` | 2 | 512 / 272 | 128 | 80 | PB8/PB7, PB12/PB13 |
++| `nucleo_h563zi` | 2 | 2048 / 640 | 256 | 80 | PB8/PB9, PB12/PA10 |
++| `nucleo_c542rc` | 2 | 256 / 64 | 64 | 72 | PB8/PB9, PB12/PB13 |
++| `nucleo_c5a3zg` | 2 | 1024 / 256 | 256 | 80 | PB8/PB9, PB12/PB13 |
++| `nucleo_u3c5zi_q` | 2 | 2048 / 640 | 640 | 96 | PB8/PB9, PB5/PB13 |
++
++H5 configurations here use USB FS only. H533 SRAM banks are 128 + 80 + 64 KiB;
++H563 banks are 256 + 64 + 320 KiB. The extra banks are not automatically allocated to
++the application heap. G474's 128 KiB includes 32 KiB CCM; G491's 112 KiB includes
++16 KiB CCM, accessible through the SRAM alias used by Zephyr. These are not extra RAM.
++Dedicated CAN message RAM and USB packet memory are not application SRAM.
++
++The 60/80 MHz CAN clocks allow exact 1 Mbit/s nominal and 5 Mbit/s data timings.
++C542's 72 MHz and U3C5's 96 MHz allow 1/4 Mbit/s, but **not exact 5 Mbit/s** with
++these clock configurations. Bitrates remain host-selected; these overlays do not start
++CAN transmission. USB FS bandwidth is shared by all channels and does not guarantee
++simultaneous full-bus throughput. Runtime enumeration and CAN traffic still require board tests.
++
++I2C/SPI functions that conflict with the selected pins are disabled. H563 uses PA10 for
++FDCAN2 TX to leave the USB-C CC pin PB13 available. Connect to the target MCU's USB
++interface, not the ST-LINK USB interface; provide external USB wiring where the board
++does not expose target USB. The U3C5 Q package needs PB5 for FDCAN2 RX. Its overlay
++adds the missing upstream FDCAN2 node using the STM32U3C5 CMSIS register/IRQ definitions
++and HAL message-RAM layout. It targets the default TZEN=0 board, not the `/ns` variant.
++
++STM32G5 has an experimental out-of-tree port in `soc/roboparty/stm32g5x` and
++`boards/roboparty/nucleo_g564re`. It targets **STM32G564RE, TZEN=0, reset boot at
++0x08000000**, with no bootloader clock inheritance, power management or flash-writing
++driver. Other G5 SKUs are not yet build targets. The CPU stays at HSI 64 MHz, while PLL1
++Q provides 80 MHz to FDCAN (64 / 8 * 40 / 4); this does not exercise the 280 MHz CPU limit.
++USB uses HSI48 with CRS synchronization to host SOF. HSI-derived CAN clock accuracy still
++needs board testing. SRAM is 32 + 64 + 16 = 112 KiB and is contiguous in this memory map.
++
++The port uses unmodified [G5 device-pack](https://github.com/STMicroelectronics/stm32g5xx-dfp)
++and [HAL2 driver](https://github.com/STMicroelectronics/stm32g5xx-drivers) sources, pinned in
++`west.yml`. Register bases, IRQs, SRAM bank continuity, Flash size, RCC offsets and
++peripheral clock-enable masks are compile-time checked against the device pack. The fixed
++64 MHz system clock is also checked against the build configuration. GPIOA/B use AHB4
++enable bits 9/10 on G5. The pin assignments come from its LQFP64 pinout descriptor. The port
++reuses Zephyr's FDCAN, pinctrl, timer and USB FS drivers. G5 LL header wrappers, USB supply
++API aliases and the STM32 clock-header dispatch extension are generated only in the build
++directory; the installed Zephyr/HAL source trees are not modified. The custom RCC driver
++implements only this fixed gateway clock configuration and rejects unsupported boot clocks.
++
++Build one target with `west build -b nucleo_g474re cannectivity/app` in a configured
++workspace. To build the entire matrix and check the generated channel count, shared CAN
++clock configuration, USB FS and timestamp settings:
++
++```shell
++python cannectivity/scripts/stm32-fs-matrix.py \
++  --workspace /path/to/zephyr-workspace \
++  --build-root /path/to/test/tmp/cannectivity-build
++```
++
++Use Python 3.12+, CMake 3.28+, Zephyr SDK and Zephyr's base Python requirements (including
++PyYAML and pyelftools). The script selects the CMSIS 6, STM32 HAL and local CANnectivity
++modules explicitly; it writes per-board logs and `report.json` with ELF Flash/RAM usage,
++the chosen application RAM region, unallocated RAM and the ELF SHA-256. Unallocated RAM
++is linker headroom, not measured runtime free heap. For G5, it also checks CAN/USB pin
++availability, alternate functions and duplicate assignments against the device pack's
++LQFP64 descriptor, and records the pin map and descriptor SHA-256. This does not verify
++Nucleo solder bridges, external wiring or signal quality.
++`--board` selects a subset; `--inspect-only` checks existing outputs, which may predate
++source edits. It does not flash hardware. Run the offline pin-check regression tests with
++`python -m unittest discover -s cannectivity/tests/scripts`.
++`app.cannectivity.stm32_fs` also provides
++the nine-board Twister build matrix. For G5, run `west update stm32g5xx-dfp stm32g5xx-drivers`
++in a workspace using this manifest. In an existing workspace that does not import this
++manifest, obtain the two pinned repositories and pass `--g5-dfp /path/to/stm32g5xx-dfp`
++and `--g5-drivers /path/to/stm32g5xx-drivers` to the matrix script. Direct `west build`
++accepts the equivalent CMake options `-DSTM32G5_DFP_DIR=...` and
++`-DSTM32G5_DRIVERS_DIR=...` after `--`.
++
++Offline validation on 2026-11-12 used Zephyr `3a7ed4fcd55759ccd250bab65b0368bc8b5dc94b`,
++STM32 HAL `39130f29ae37c1db34095478ca02b6419b70dcdc` and Zephyr SDK 1.0.1.
++All nine builds and generated-configuration checks passed. Linked RAM usage was
++19,768-23,188 bytes; this includes statically reserved stacks/pools but is not a measured
++runtime stack high-water mark. No USB enumeration, CAN traffic or throughput test was run.
++
+ ## Workspace Setup
+ 
+ Building the CANnectivity firmware requires a proper Zephyr development environment. This repository
+diff --git a/app/boards/nucleo_c542rc_stm32c542xx.overlay b/app/boards/nucleo_c542rc_stm32c542xx.overlay
+new file mode 100644
+index 0000000..3215d44
+--- /dev/null
++++ b/app/boards/nucleo_c542rc_stm32c542xx.overlay
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "stm32_fs_dual.dtsi"
++
++/* The stock 144 MHz clock supports 4 Mbit/s, not exact 5 Mbit/s. */
++&fdcan1 {
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>, <&rcc STM32_SRC_PCLK1 FDCAN_SEL(0)>;
++	clk-divider = <2>;
++};
++&fdcan2 {
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>, <&rcc STM32_SRC_PCLK1 FDCAN_SEL(0)>;
++	clk-divider = <2>;
++};
++&timers2 { st,prescaler = <143>; };
+diff --git a/app/boards/nucleo_c5a3zg_stm32c5a3xx.overlay b/app/boards/nucleo_c5a3zg_stm32c5a3xx.overlay
+new file mode 100644
+index 0000000..47258ba
+--- /dev/null
++++ b/app/boards/nucleo_c5a3zg_stm32c5a3xx.overlay
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "stm32_fs_dual.dtsi"
++
++/* Use the board's independent 80 MHz PSIK for both FDCAN instances. */
++&fdcan1 { clk-divider = <1>; };
++&fdcan2 {
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>, <&rcc STM32_SRC_PSIK FDCAN_SEL(2)>;
++	clk-divider = <1>;
++};
++&timers2 { st,prescaler = <143>; };
+diff --git a/app/boards/nucleo_g0b1re_stm32g0b1xx.conf b/app/boards/nucleo_g0b1re_stm32g0b1xx.conf
+new file mode 100644
+index 0000000..efc47b5
+--- /dev/null
++++ b/app/boards/nucleo_g0b1re_stm32g0b1xx.conf
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: Apache-2.0
++# The board enables MPU stack protection, mutually exclusive with the sentinel.
++CONFIG_STACK_SENTINEL=n
+diff --git a/app/boards/nucleo_g0b1re_stm32g0b1xx.overlay b/app/boards/nucleo_g0b1re_stm32g0b1xx.overlay
+new file mode 100644
+index 0000000..a4e4b62
+--- /dev/null
++++ b/app/boards/nucleo_g0b1re_stm32g0b1xx.overlay
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "stm32_fs_dual.dtsi"
++
++/* 60 MHz permits exact 1 Mbit/s nominal and 5 Mbit/s data timing. */
++&pll { div-m = <2>; mul-n = <15>; };
++&rcc { clock-frequency = <DT_FREQ_M(60)>; };
++&timers2 { st,prescaler = <59>; };
++&i2c1 { status = "disabled"; };
++&i2c2 { status = "disabled"; };
+diff --git a/app/boards/nucleo_g474re_stm32g474xx.conf b/app/boards/nucleo_g474re_stm32g474xx.conf
+new file mode 100644
+index 0000000..efdb0e2
+--- /dev/null
++++ b/app/boards/nucleo_g474re_stm32g474xx.conf
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: Apache-2.0
++CONFIG_STACK_SENTINEL=n
+diff --git a/app/boards/nucleo_g474re_stm32g474xx.overlay b/app/boards/nucleo_g474re_stm32g474xx.overlay
+new file mode 100644
+index 0000000..2ed014e
+--- /dev/null
++++ b/app/boards/nucleo_g474re_stm32g474xx.overlay
+@@ -0,0 +1,32 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "stm32_fs_dual.dtsi"
++
++/* 160 MHz APB1, divided by two at the shared FDCAN kernel. */
++&pll { mul-n = <80>; };
++&rcc { clock-frequency = <DT_FREQ_M(160)>; };
++&fdcan1 {
++	clocks = <&rcc STM32_CLOCK(APB1, 25)>, <&rcc STM32_SRC_PCLK FDCAN_SEL(2)>;
++	clk-divider = <2>;
++};
++&fdcan2 {
++	clocks = <&rcc STM32_CLOCK(APB1, 25)>, <&rcc STM32_SRC_PCLK FDCAN_SEL(2)>;
++	clk-divider = <2>;
++};
++&fdcan3 {
++	clocks = <&rcc STM32_CLOCK(APB1, 25)>, <&rcc STM32_SRC_PCLK FDCAN_SEL(2)>;
++	pinctrl-0 = <&fdcan3_rx_pa8 &fdcan3_tx_pa15>;
++	pinctrl-names = "default";
++	clk-divider = <2>;
++	status = "okay";
++};
++&cannectivity {
++	channel2 {
++		compatible = "cannectivity-channel";
++		can-controller = <&fdcan3>;
++	};
++};
++&timers2 { st,prescaler = <159>; };
++&pwm2 { status = "disabled"; };
++&i2c1 { status = "disabled"; };
++&spi2 { status = "disabled"; };
++&spi3 { status = "disabled"; };
+diff --git a/app/boards/nucleo_g491re_stm32g491xx.conf b/app/boards/nucleo_g491re_stm32g491xx.conf
+new file mode 100644
+index 0000000..efdb0e2
+--- /dev/null
++++ b/app/boards/nucleo_g491re_stm32g491xx.conf
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: Apache-2.0
++CONFIG_STACK_SENTINEL=n
+diff --git a/app/boards/nucleo_g491re_stm32g491xx.overlay b/app/boards/nucleo_g491re_stm32g491xx.overlay
+new file mode 100644
+index 0000000..a57ba96
+--- /dev/null
++++ b/app/boards/nucleo_g491re_stm32g491xx.overlay
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "stm32_fs_dual.dtsi"
++
++&pll { mul-n = <80>; };
++&rcc { clock-frequency = <DT_FREQ_M(160)>; };
++&fdcan1 {
++	clocks = <&rcc STM32_CLOCK(APB1, 25)>, <&rcc STM32_SRC_PCLK FDCAN_SEL(2)>;
++	clk-divider = <2>;
++};
++&fdcan2 {
++	clocks = <&rcc STM32_CLOCK(APB1, 25)>, <&rcc STM32_SRC_PCLK FDCAN_SEL(2)>;
++	clk-divider = <2>;
++};
++&timers2 { st,prescaler = <159>; };
++&pwm2 { status = "disabled"; };
++&i2c1 { status = "disabled"; };
++&spi2 { status = "disabled"; };
++
++&clk_hsi48 { status = "okay"; };
+diff --git a/app/boards/nucleo_g564re_stm32g564xx.conf b/app/boards/nucleo_g564re_stm32g564xx.conf
+new file mode 100644
+index 0000000..efdb0e2
+--- /dev/null
++++ b/app/boards/nucleo_g564re_stm32g564xx.conf
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: Apache-2.0
++CONFIG_STACK_SENTINEL=n
+diff --git a/app/boards/nucleo_g564re_stm32g564xx.overlay b/app/boards/nucleo_g564re_stm32g564xx.overlay
+new file mode 100644
+index 0000000..66582bd
+--- /dev/null
++++ b/app/boards/nucleo_g564re_stm32g564xx.overlay
+@@ -0,0 +1,11 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "../app.overlay"
++/ {
++	cannectivity: cannectivity {
++		compatible = "cannectivity";
++		timestamp-counter = <&gateway_counter>;
++		channel0 { compatible = "cannectivity-channel"; can-controller = <&fdcan1>; };
++		channel1 { compatible = "cannectivity-channel"; can-controller = <&fdcan2>; };
++		channel2 { compatible = "cannectivity-channel"; can-controller = <&fdcan3>; };
++	};
++};
+diff --git a/app/boards/nucleo_h533re_stm32h533xx.overlay b/app/boards/nucleo_h533re_stm32h533xx.overlay
+new file mode 100644
+index 0000000..6bc1ff8
+--- /dev/null
++++ b/app/boards/nucleo_h533re_stm32h533xx.overlay
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "stm32_fs_dual.dtsi"
++
++/* PLL1 VCO = 480 MHz; Q = 80 MHz for both controllers. */
++&pll { div-q = <6>; };
++&fdcan1 {
++	pinctrl-0 = <&fdcan1_rx_pb8 &fdcan1_tx_pb7>;
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>,
++		 <&rcc STM32_SRC_PLL1_Q FDCAN_SEL(1)>;
++	clk-divider = <1>;
++};
++&fdcan2 {
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>,
++		 <&rcc STM32_SRC_PLL1_Q FDCAN_SEL(1)>;
++	clk-divider = <1>;
++};
++&timers2 { st,prescaler = <239>; };
++&i2c1 { status = "disabled"; };
+diff --git a/app/boards/nucleo_h563zi_stm32h563xx.overlay b/app/boards/nucleo_h563zi_stm32h563xx.overlay
+new file mode 100644
+index 0000000..71f4da3
+--- /dev/null
++++ b/app/boards/nucleo_h563zi_stm32h563xx.overlay
+@@ -0,0 +1,20 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include "stm32_fs_dual.dtsi"
++
++/* Nucleo PLL2 Q = 160 MHz, shared FDCAN divider = 2. */
++&fdcan1 { clk-divider = <2>; };
++&fdcan2 {
++	pinctrl-0 = <&fdcan2_rx_pb12 &fdcan2_tx_pa10>;
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>,
++		 <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
++	clk-divider = <2>;
++};
++&timers2 { st,prescaler = <239>; };
++&i2c1 { status = "disabled"; };
++/* Ethernet is unused; avoid requiring its pinctrl naming across HAL revisions. */
++&mac {
++	status = "disabled";
++	/delete-property/ pinctrl-0;
++	/delete-property/ pinctrl-names;
++};
++&mdio { status = "disabled"; };
+diff --git a/app/boards/nucleo_u3c5zi_q_stm32u3c5xx.overlay b/app/boards/nucleo_u3c5zi_q_stm32u3c5xx.overlay
+new file mode 100644
+index 0000000..f39e4b6
+--- /dev/null
++++ b/app/boards/nucleo_u3c5zi_q_stm32u3c5xx.overlay
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++
++/* STM32U3C5 CMSIS: FDCAN2 base 0x4000a800, IRQs 114/115.
++ * Supply the instance missing from Zephyr's STM32U3C5 device tree.
++ */
++/ {
++	soc {
++		fdcan2: can@4000a800 {
++			compatible = "st,stm32-fdcan";
++			reg = <0x4000a800 0x400>, <0x4000ac00 0x6a0>;
++			reg-names = "m_can", "message_ram";
++			interrupts = <114 0>, <115 0>;
++			interrupt-names = "int0", "int1";
++			clocks = <&rcc STM32_CLOCK(APB1_2, 9)>;
++			bosch,mram-cfg = <0x350 28 8 3 3 0 3 3>;
++		};
++	};
++};
++
++#include "stm32_fs_dual.dtsi"
++
++/* The Q package does not expose PB12 as FDCAN2 RX. */
++&fdcan2 {
++	pinctrl-0 = <&fdcan2_rx_pb5 &fdcan2_tx_pb13>;
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>, <&rcc STM32_SRC_SYSCLK FDCAN1_SEL(0)>;
++	clk-divider = <1>;
++};
++&fdcan1 {
++	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>, <&rcc STM32_SRC_SYSCLK FDCAN1_SEL(0)>;
++	clk-divider = <1>;
++};
++&timers2 { st,prescaler = <95>; };
++&pwm2 { status = "disabled"; };
++/* TIM2 supplies timestamps; the RTC counter driver is not needed. */
++&rtc { status = "disabled"; };
+diff --git a/app/boards/stm32_fs_dual.dtsi b/app/boards/stm32_fs_dual.dtsi
+new file mode 100644
+index 0000000..9666489
+--- /dev/null
++++ b/app/boards/stm32_fs_dual.dtsi
+@@ -0,0 +1,45 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++
++#include "../app.overlay"
++
++/ {
++	cannectivity: cannectivity {
++		compatible = "cannectivity";
++		timestamp-counter = <&gateway_counter>;
++		channel0 {
++			compatible = "cannectivity-channel";
++			can-controller = <&fdcan1>;
++		};
++		channel1 {
++			compatible = "cannectivity-channel";
++			can-controller = <&fdcan2>;
++		};
++	};
++};
++
++&fdcan1 {
++	pinctrl-0 = <&fdcan1_rx_pb8 &fdcan1_tx_pb9>;
++	pinctrl-names = "default";
++	status = "okay";
++};
++
++&fdcan2 {
++	pinctrl-0 = <&fdcan2_rx_pb12 &fdcan2_tx_pb13>;
++	pinctrl-names = "default";
++	status = "okay";
++};
++
++zephyr_udc0: &usb {
++	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
++	pinctrl-names = "default";
++	maximum-speed = "full-speed";
++	status = "okay";
++};
++
++&timers2 {
++	status = "okay";
++	gateway_counter: counter {
++		compatible = "st,stm32-counter";
++		status = "okay";
++	};
++};
+diff --git a/app/tests.yaml b/app/tests.yaml
+index 6317350..cc2b196 100644
+--- a/app/tests.yaml
++++ b/app/tests.yaml
+@@ -15,6 +15,28 @@ common:
+     regex:
+       - "CANnectivity firmware initialized with .*"
+ tests:
++  app.cannectivity.stm32_fs:
++    build_only: true
++    platform_allow:
++      - nucleo_g0b1re
++      - nucleo_g474re
++      - nucleo_g491re
++      - nucleo_g564re
++      - nucleo_h533re
++      - nucleo_h563zi
++      - nucleo_c542rc
++      - nucleo_c5a3zg
++      - nucleo_u3c5zi_q
++    integration_platforms:
++      - nucleo_g0b1re
++      - nucleo_g474re
++      - nucleo_g491re
++      - nucleo_g564re
++      - nucleo_h533re
++      - nucleo_h563zi
++      - nucleo_c542rc
++      - nucleo_c5a3zg
++      - nucleo_u3c5zi_q
+   app.cannectivity.debug:
+     depends_on:
+       - can
+diff --git a/boards/roboparty/nucleo_g564re/Kconfig.nucleo_g564re b/boards/roboparty/nucleo_g564re/Kconfig.nucleo_g564re
+new file mode 100644
+index 0000000..f42323a
+--- /dev/null
++++ b/boards/roboparty/nucleo_g564re/Kconfig.nucleo_g564re
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: Apache-2.0
++config BOARD_NUCLEO_G564RE
++	select SOC_STM32G564XX
+diff --git a/boards/roboparty/nucleo_g564re/board.yml b/boards/roboparty/nucleo_g564re/board.yml
+new file mode 100644
+index 0000000..90f1b2a
+--- /dev/null
++++ b/boards/roboparty/nucleo_g564re/board.yml
+@@ -0,0 +1,7 @@
++# SPDX-License-Identifier: Apache-2.0
++board:
++  name: nucleo_g564re
++  full_name: Nucleo G564RE (experimental CANnectivity port)
++  vendor: st
++  socs:
++    - name: stm32g564xx
+diff --git a/boards/roboparty/nucleo_g564re/nucleo_g564re.dts b/boards/roboparty/nucleo_g564re/nucleo_g564re.dts
+new file mode 100644
+index 0000000..d9c405f
+--- /dev/null
++++ b/boards/roboparty/nucleo_g564re/nucleo_g564re.dts
+@@ -0,0 +1,139 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++/dts-v1/;
++#include <arm/armv8-m.dtsi>
++#include <zephyr/dt-bindings/pinctrl/stm32-pinctrl.h>
++#include <zephyr/dt-bindings/clock/stm32_common_clocks.h>
++#include <freq.h>
++#include <mem.h>
++
++/ {
++	model = "STMicroelectronics NUCLEO-G564RE";
++	compatible = "st,stm32g564re-nucleo";
++	chosen {
++		zephyr,sram = &sram0;
++		zephyr,flash = &flash0;
++		zephyr,canbus = &fdcan1;
++	};
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++		cpu0: cpu@0 {
++			#address-cells = <1>;
++			#size-cells = <1>;
++			compatible = "arm,cortex-m33";
++			reg = <0>;
++			clock-frequency = <DT_FREQ_M(64)>;
++			mpu: mpu@e000ed90 {
++				compatible = "arm,armv8m-mpu";
++				reg = <0xe000ed90 0x40>;
++			};
++		};
++	};
++	sram0: memory@20000000 {
++		compatible = "mmio-sram";
++		reg = <0x20000000 DT_SIZE_K(112)>;
++	};
++	flash0: flash@8000000 {
++		compatible = "soc-nv-flash";
++		reg = <0x08000000 DT_SIZE_K(512)>;
++	};
++	soc {
++		rcc: clock-controller@44020c00 {
++			compatible = "roboparty,stm32g5-rcc";
++			reg = <0x44020c00 0x400>;
++			#clock-cells = <2>;
++			clock-frequency = <DT_FREQ_M(64)>;
++			rctl: reset-controller {
++				compatible = "st,stm32-rcc-rctl";
++				#reset-cells = <1>;
++			};
++		};
++		timers2: timers@40000000 {
++			compatible = "st,stm32-timers";
++			reg = <0x40000000 0x400>;
++			clocks = <&rcc 0x9c 1>, <&rcc 3 0>;
++			resets = <&rctl (0x74 << 5)>;
++			interrupts = <52 0>;
++			interrupt-names = "global";
++			st,prescaler = <63>;
++			gateway_counter: counter {
++				compatible = "st,stm32-counter";
++			};
++		};
++		pinctrl: pin-controller@46000000 {
++			compatible = "st,stm32-pinctrl";
++			reg = <0x46000000 0x800>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0 0x46000000 0x800>;
++			gpioa: gpio@0 {
++				compatible = "st,stm32-gpio";
++				reg = <0 0x400>;
++				gpio-controller;
++				#gpio-cells = <2>;
++				clocks = <&rcc 0x94 0x200>;
++			};
++			gpiob: gpio@400 {
++				compatible = "st,stm32-gpio";
++				reg = <0x400 0x400>;
++				gpio-controller;
++				#gpio-cells = <2>;
++				clocks = <&rcc 0x94 0x400>;
++			};
++			can1_rx: can1-rx { pinmux = <STM32_PINMUX('A', 6, AF9)>; };
++			can1_tx: can1-tx { pinmux = <STM32_PINMUX('A', 7, AF9)>; slew-rate = "very-high-speed"; };
++			can2_rx: can2-rx { pinmux = <STM32_PINMUX('A', 4, AF13)>; };
++			can2_tx: can2-tx { pinmux = <STM32_PINMUX('A', 5, AF13)>; slew-rate = "very-high-speed"; };
++			can3_rx: can3-rx { pinmux = <STM32_PINMUX('A', 8, AF6)>; };
++			can3_tx: can3-tx { pinmux = <STM32_PINMUX('B', 7, AF8)>; slew-rate = "very-high-speed"; };
++			usb_dm: usb-dm { pinmux = <STM32_PINMUX('A', 11, ANALOG)>; };
++			usb_dp: usb-dp { pinmux = <STM32_PINMUX('A', 12, ANALOG)>; };
++		};
++		fdcan1: can@4000a000 {
++			compatible = "st,stm32-fdcan";
++			reg = <0x4000a000 0x400>, <0x4000ac00 0x350>;
++			reg-names = "m_can", "message_ram";
++			interrupts = <46 0>, <47 0>;
++			interrupt-names = "int0", "int1";
++			clocks = <&rcc 0xa0 0x200>, <&rcc 1 0>;
++			bosch,mram-cfg = <0 28 8 3 3 0 3 3>;
++			pinctrl-0 = <&can1_rx &can1_tx>;
++			pinctrl-names = "default";
++		};
++		fdcan2: can@4000a400 {
++			compatible = "st,stm32-fdcan";
++			reg = <0x4000a400 0x400>, <0x4000ac00 0x6a0>;
++			reg-names = "m_can", "message_ram";
++			interrupts = <112 0>, <113 0>;
++			interrupt-names = "int0", "int1";
++			clocks = <&rcc 0xa0 0x200>, <&rcc 1 0>;
++			bosch,mram-cfg = <0x350 28 8 3 3 0 3 3>;
++			pinctrl-0 = <&can2_rx &can2_tx>;
++			pinctrl-names = "default";
++		};
++		fdcan3: can@4000a800 {
++			compatible = "st,stm32-fdcan";
++			reg = <0x4000a800 0x400>, <0x4000ac00 0x9f0>;
++			reg-names = "m_can", "message_ram";
++			interrupts = <107 0>, <108 0>;
++			interrupt-names = "int0", "int1";
++			clocks = <&rcc 0xa0 0x200>, <&rcc 1 0>;
++			bosch,mram-cfg = <0x6a0 28 8 3 3 0 3 3>;
++			pinctrl-0 = <&can3_rx &can3_tx>;
++			pinctrl-names = "default";
++		};
++		zephyr_udc0: usb: usb@40016000 {
++			compatible = "st,stm32-usb";
++			reg = <0x40016000 0x400>;
++			interrupts = <81 0>;
++			interrupt-names = "usb";
++			clocks = <&rcc 0xa4 0x1000000>, <&rcc 2 0>;
++			ram-size = <2048>;
++			num-bidir-endpoints = <8>;
++			maximum-speed = "full-speed";
++			pinctrl-0 = <&usb_dm &usb_dp>;
++			pinctrl-names = "default";
++		};
++	};
++};
++&nvic { arm,num-irq-priority-bits = <4>; };
+diff --git a/boards/roboparty/nucleo_g564re/nucleo_g564re.yaml b/boards/roboparty/nucleo_g564re/nucleo_g564re.yaml
+new file mode 100644
+index 0000000..b9d6890
+--- /dev/null
++++ b/boards/roboparty/nucleo_g564re/nucleo_g564re.yaml
+@@ -0,0 +1,14 @@
++# SPDX-License-Identifier: Apache-2.0
++identifier: nucleo_g564re
++name: ST Nucleo G564RE (experimental CANnectivity port)
++type: mcu
++arch: arm
++toolchain:
++  - zephyr
++ram: 112
++flash: 512
++supported:
++  - can
++  - usb_device
++  - counter
++vendor: st
+diff --git a/boards/roboparty/nucleo_g564re/nucleo_g564re_defconfig b/boards/roboparty/nucleo_g564re/nucleo_g564re_defconfig
+new file mode 100644
+index 0000000..9825552
+--- /dev/null
++++ b/boards/roboparty/nucleo_g564re/nucleo_g564re_defconfig
+@@ -0,0 +1,6 @@
++# SPDX-License-Identifier: Apache-2.0
++CONFIG_ARM_MPU=y
++CONFIG_CLOCK_CONTROL=y
++CONFIG_CLOCK_CONTROL_STM32_CUBE=n
++CONFIG_PINCTRL=y
++CONFIG_BUILD_OUTPUT_BIN=y
+diff --git a/dts/bindings/clock/roboparty,stm32g5-rcc.yaml b/dts/bindings/clock/roboparty,stm32g5-rcc.yaml
+new file mode 100644
+index 0000000..5d05d3a
+--- /dev/null
++++ b/dts/bindings/clock/roboparty,stm32g5-rcc.yaml
+@@ -0,0 +1,15 @@
++# SPDX-License-Identifier: Apache-2.0
++description: STM32G5 gateway clocks (64 MHz HSI system, 80 MHz FDCAN, 48 MHz USB)
++compatible: "roboparty,stm32g5-rcc"
++include: [clock-controller.yaml, base.yaml]
++properties:
++  reg:
++    required: true
++  clock-frequency:
++    type: int
++    required: true
++  "#clock-cells":
++    const: 2
++clock-cells:
++  - bus
++  - bits
+diff --git a/scripts/stm32-fs-matrix.py b/scripts/stm32-fs-matrix.py
+new file mode 100644
+index 0000000..9719932
+--- /dev/null
++++ b/scripts/stm32-fs-matrix.py
+@@ -0,0 +1,190 @@
++#!/usr/bin/env python3
++# SPDX-License-Identifier: Apache-2.0
++"""Build and inspect the Nucleo USB FS matrix. Does not access hardware."""
++
++import argparse
++import hashlib
++import json
++import pickle
++from pathlib import Path
++import subprocess
++import sys
++
++import yaml
++from elftools.elf.elffile import ELFFile
++
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def pinmux_values(node):
++    """Flatten STM32 pinctrl groups from the generated devicetree."""
++    if "pinmux" in node.props:
++        value = node.props["pinmux"].val
++        yield from [value] if isinstance(value, int) else value
++    for child in node.children.values():
++        yield from pinmux_values(child)
++
++
++def check_g5_pins(edt, descriptor):
++    package = json.loads(descriptor.read_text())
++    available = {pad.split("(", 1)[0] for pad in package["die_pads"]}
++    valid = {}
++    for signal in package["signals"]:
++        function = signal["function"]
++        if function["type"] == "alternate":
++            mode = int(function["id"].removeprefix("AF"))
++        elif function["type"] == "additional" and signal["name"] in ("USB_DM", "USB_DP"):
++            mode = 16  # STM32_ANALOG: USB uses the dedicated pad function.
++        else:
++            continue
++        valid.setdefault(signal["name"], set()).add((signal["die_pad"].split("(", 1)[0], mode))
++
++    used = {}
++    result = {}
++    for label, signals in [
++        ("fdcan1", ("FDCAN1_RX", "FDCAN1_TX")),
++        ("fdcan2", ("FDCAN2_RX", "FDCAN2_TX")),
++        ("fdcan3", ("FDCAN3_RX", "FDCAN3_TX")),
++        ("zephyr_udc0", ("USB_DM", "USB_DP")),
++    ]:
++        node = edt.label2node[label]
++        pins = [value for group in node.props["pinctrl-0"].val for value in pinmux_values(group)]
++        matched = set()
++        for value in pins:
++            # Encoding from zephyr/dt-bindings/pinctrl/stm32-pinctrl.h.
++            pad = f"P{chr(65 + ((value >> 9) & 31))}{(value >> 5) & 15}"
++            mode = value & 31
++            if pad not in available:
++                raise ValueError(f"{label}: {pad} is absent from the G5 LQFP64 package")
++            if pad in used:
++                raise ValueError(f"{label}: {pad} is already used by {used[pad]}")
++            candidates = [signal for signal in signals if (pad, mode) in valid.get(signal, set())]
++            if len(candidates) != 1 or candidates[0] in matched:
++                raise ValueError(f"{label}: invalid or duplicate signal on {pad}, mode {mode}")
++            signal = candidates[0]
++            matched.add(signal)
++            used[pad] = signal
++            result[signal] = {"pin": pad, "mode": "analog" if mode == 16 else f"AF{mode}"}
++        if matched != set(signals):
++            raise ValueError(f"{label}: missing pins for {set(signals) - matched}")
++    return result
++
++
++def inspect_build(build, expected_channels):
++    config = dict(
++        line.split("=", 1)
++        for line in (build / "zephyr/.config").read_text().splitlines()
++        if line.startswith("CONFIG_") and "=" in line
++    )
++    for key, value in {
++        "CONFIG_CAN_FD_MODE": "y",
++        "CONFIG_USB_DEVICE_STACK_NEXT": "y",
++        "CONFIG_CANNECTIVITY_TIMESTAMP_COUNTER": "y",
++        "CONFIG_USBD_GS_USB_MAX_CHANNELS": str(expected_channels),
++    }.items():
++        if config.get(key) != value:
++            raise ValueError(f"{key}: expected {value}, got {config.get(key)}")
++
++    # Only load the devicetree generated by this local build.
++    with (build / "zephyr/edt.pickle").open("rb") as stream:
++        edt = pickle.load(stream)
++    usb = edt.label2node["zephyr_udc0"]
++    if usb.status != "okay" or usb.props["maximum-speed"].val != "full-speed":
++        raise ValueError("USB FS controller is not enabled")
++    channels = edt.compat2okay["cannectivity-channel"]
++    controllers = [node.props["can-controller"].val for node in channels]
++    if len(controllers) != expected_channels or len(set(controllers)) != expected_channels:
++        raise ValueError("Missing or duplicate CAN channels")
++    clocks = []
++    for controller in controllers:
++        if controller.status != "okay":
++            raise ValueError(f"{controller.path} is disabled")
++        clocks.append((
++            [clock.data for clock in controller.props["clocks"].val],
++            controller.props["clk-divider"].val if "clk-divider" in controller.props else 1,
++        ))
++    if any(clock != clocks[0] for clock in clocks):
++        raise ValueError("FDCAN controllers disagree on their shared kernel clock")
++
++    with (build / "zephyr/zephyr.elf").open("rb") as stream:
++        elf = ELFFile(stream)
++        symbols = {s.name: s["st_value"] for s in elf.get_section_by_name(".symtab").iter_symbols()}
++    ram = edt.chosen_node("zephyr,sram").regs[0]
++    flash = edt.chosen_node("zephyr,flash").regs[0]
++    ram_used = symbols["_image_ram_end"] - symbols["_image_ram_start"]
++    if not (ram.addr <= symbols["_image_ram_start"] <= symbols["_image_ram_end"] <= ram.addr + ram.size):
++        raise ValueError("Linked RAM image is outside the chosen SRAM region")
++    if not 0 < symbols["_flash_used"] <= flash.size:
++        raise ValueError("Linked Flash image exceeds the chosen Flash region")
++    result = {
++        "channels": len(channels),
++        "usb_speed": "full-speed",
++        "flash_used_bytes": symbols["_flash_used"],
++        "ram_used_bytes": ram_used,
++        "application_ram_region_bytes": ram.size,
++        "ram_unallocated_bytes": ram.size - ram_used,
++        "flash_region_bytes": flash.size,
++        "elf_sha256": hashlib.sha256((build / "zephyr/zephyr.elf").read_bytes()).hexdigest(),
++        "elf": str(build / "zephyr/zephyr.elf"),
++        "hardware_tested": False,
++    }
++    if config.get("CONFIG_SOC_STM32G564XX") == "y":
++        cache = dict(
++            line.split("=", 1) for line in (build / "CMakeCache.txt").read_text().splitlines()
++            if line.startswith("STM32G5_DFP_DIR:PATH=")
++        )
++        descriptor = Path(cache["STM32G5_DFP_DIR:PATH"]) / "Descriptors/pinout/STM32G5(5-6)4R(B-C-E)Tx(Z-_)_pinout.json"
++        result["validated_pins"] = check_g5_pins(edt, descriptor)
++        result["pin_descriptor_sha256"] = hashlib.sha256(descriptor.read_bytes()).hexdigest()
++    return result
++
++
++def main():
++    matrix = yaml.safe_load((ROOT / "app/tests.yaml").read_text())["tests"][
++        "app.cannectivity.stm32_fs"
++    ]["integration_platforms"]
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--workspace", type=Path, required=True)
++    parser.add_argument("--build-root", type=Path, required=True)
++    parser.add_argument("--board", action="append", choices=matrix)
++    parser.add_argument("--inspect-only", action="store_true")
++    parser.add_argument("--g5-dfp", type=Path, help="Override STM32G5 device pack directory")
++    parser.add_argument("--g5-drivers", type=Path, help="Override STM32G5 HAL2 directory")
++    args = parser.parse_args()
++    workspace = args.workspace.resolve()
++    output = args.build_root.resolve()
++    output.mkdir(parents=True, exist_ok=True)
++    sys.path.insert(0, str(workspace / "zephyr/scripts/dts/python-devicetree/src"))
++    modules = [workspace / "modules/hal/cmsis_6", workspace / "modules/hal/stm32", ROOT]
++    report = {}
++    failed = False
++    for board in args.board or matrix:
++        build = output / board
++        try:
++            if not args.inspect_only:
++                sdk_args = []
++                if board == "nucleo_g564re":
++                    if args.g5_dfp:
++                        sdk_args.append(f"-DSTM32G5_DFP_DIR={args.g5_dfp.resolve()}")
++                    if args.g5_drivers:
++                        sdk_args.append(f"-DSTM32G5_DRIVERS_DIR={args.g5_drivers.resolve()}")
++                with (output / f"{board}.log").open("w") as log:
++                    subprocess.run([
++                        "west", "build", "-p", "always", "-b", board,
++                        str(ROOT / "app"), "-d", str(build), "--",
++                        "-DZEPHYR_MODULES=" + ";".join(map(str, modules)),
++                        *sdk_args,
++                    ], cwd=workspace, stdout=log, stderr=subprocess.STDOUT, check=True)
++            report[board] = inspect_build(build, 3 if board in ("nucleo_g474re", "nucleo_g564re") else 2)
++            print(f"{board}: {json.dumps(report[board])}", flush=True)
++        except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as error:
++            report[board] = {"error": str(error)}
++            print(f"{board}: FAILED: {error}; see {output / (board + '.log')}", flush=True)
++            failed = True
++    (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
++    return int(failed)
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/soc/roboparty/stm32g5x/CMakeLists.txt b/soc/roboparty/stm32g5x/CMakeLists.txt
+new file mode 100644
+index 0000000..bd788fe
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/CMakeLists.txt
+@@ -0,0 +1,46 @@
++# SPDX-License-Identifier: Apache-2.0
++set(STM32G5_DFP_DIR "${WEST_TOPDIR}/modules/hal/stm32g5xx-dfp" CACHE PATH "STM32G5 device pack")
++set(STM32G5_DRIVERS_DIR "${WEST_TOPDIR}/modules/hal/stm32g5xx-drivers" CACHE PATH "STM32G5 HAL2")
++foreach(path ${STM32G5_DFP_DIR}/Include/stm32g5xx.h
++             ${STM32G5_DRIVERS_DIR}/hal/stm32g5xx_hal_pcd.c)
++  if(NOT EXISTS "${path}")
++    message(FATAL_ERROR "Missing G5 SDK file: ${path}. Set STM32G5_DFP_DIR and STM32G5_DRIVERS_DIR.")
++  endif()
++endforeach()
++
++set(g5_wrappers ${CMAKE_CURRENT_BINARY_DIR}/include)
++file(MAKE_DIRECTORY ${g5_wrappers})
++foreach(header bus cortex crs dma exti flash gpio pwr rcc system tim utils)
++  file(WRITE ${g5_wrappers}/stm32_ll_${header}.h "#include <stm32g5xx_ll_${header}.h>\n")
++endforeach()
++file(APPEND ${g5_wrappers}/stm32_ll_pwr.h
++  "#define LL_PWR_EnableVDDUSB LL_PWR_EnableUSBSupply\n#define LL_PWR_DisableVDDUSB LL_PWR_DisableUSBSupply\n")
++# Extend the upstream dispatch in a build-local copy, preserving its ABI and helpers.
++set(clock_header zephyr/drivers/clock_control/stm32_clock_control.h)
++file(READ ${ZEPHYR_BASE}/include/${clock_header} clock_api)
++set(dispatch "#elif defined(CONFIG_SOC_SERIES_STM32G4X)")
++string(FIND "${clock_api}" "${dispatch}" dispatch_pos)
++if(dispatch_pos EQUAL -1)
++  message(FATAL_ERROR "STM32 clock header changed; review the G5 dispatch adapter")
++endif()
++string(REPLACE "${dispatch}"
++  "#elif defined(CONFIG_SOC_SERIES_STM32G5X)\n#include <zephyr/dt-bindings/clock/stm32_common_clocks.h>\n${dispatch}"
++  clock_api "${clock_api}")
++file(MAKE_DIRECTORY ${g5_wrappers}/zephyr/drivers/clock_control)
++file(WRITE ${g5_wrappers}/${clock_header} "${clock_api}")
++target_include_directories(zephyr_interface BEFORE INTERFACE ${g5_wrappers})
++zephyr_include_directories(.
++  ${STM32G5_DFP_DIR}/Include ${STM32G5_DFP_DIR}/Include/Templates
++  ${STM32G5_DRIVERS_DIR}/hal ${STM32G5_DRIVERS_DIR}/ll
++  ${STM32G5_DRIVERS_DIR}/templates/common
++  ${ZEPHYR_BASE}/soc/st/stm32/common ${ZEPHYR_BASE}/drivers)
++zephyr_compile_definitions(STM32G564xx USE_HAL_DRIVER USE_FULL_LL_DRIVER)
++zephyr_sources(soc.c clock.c
++  ${STM32G5_DFP_DIR}/Source/Templates/system_stm32g5xx.c
++  ${STM32G5_DRIVERS_DIR}/hal/stm32g5xx_hal.c
++  ${STM32G5_DRIVERS_DIR}/hal/stm32g5xx_hal_rcc.c
++  ${STM32G5_DRIVERS_DIR}/hal/stm32g5xx_hal_pcd.c
++  ${STM32G5_DRIVERS_DIR}/hal/stm32g5xx_usb_drd_core.c
++  ${ZEPHYR_BASE}/soc/st/stm32/common/stm32cube_hal.c
++  ${ZEPHYR_BASE}/soc/st/stm32/common/gpioport_mgr.c)
++set(SOC_LINKER_SCRIPT ${ZEPHYR_BASE}/include/zephyr/arch/arm/cortex_m/scripts/linker.ld CACHE INTERNAL "")
+diff --git a/soc/roboparty/stm32g5x/Kconfig b/soc/roboparty/stm32g5x/Kconfig
+new file mode 100644
+index 0000000..75019fc
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/Kconfig
+@@ -0,0 +1,13 @@
++# SPDX-License-Identifier: Apache-2.0
++config SOC_SERIES_STM32G5X
++	select ARM
++	select ARM_TRUSTZONE_M
++	select CPU_CORTEX_M33
++	select ARMV8_M_DSP
++	select CPU_CORTEX_M_HAS_DWT
++	select CPU_HAS_ARM_MPU
++	select CPU_HAS_ARM_SAU
++	select CPU_HAS_FPU
++	select SOC_EARLY_INIT_HOOK
++	select HAS_STM32CUBE
++	select STM32_HAL2
+diff --git a/soc/roboparty/stm32g5x/Kconfig.defconfig b/soc/roboparty/stm32g5x/Kconfig.defconfig
+new file mode 100644
+index 0000000..282e6a2
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/Kconfig.defconfig
+@@ -0,0 +1,5 @@
++# SPDX-License-Identifier: Apache-2.0
++if SOC_SERIES_STM32G5X
++config CLOCK_CONTROL_STM32_CUBE
++	default n
++endif
+diff --git a/soc/roboparty/stm32g5x/Kconfig.soc b/soc/roboparty/stm32g5x/Kconfig.soc
+new file mode 100644
+index 0000000..c1dac9a
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/Kconfig.soc
+@@ -0,0 +1,14 @@
++# SPDX-License-Identifier: Apache-2.0
++config SOC_SERIES_STM32G5X
++	bool
++	select SOC_FAMILY_STM32
++
++config SOC_STM32G564XX
++	bool
++	select SOC_SERIES_STM32G5X
++
++config SOC
++	default "stm32g564xx" if SOC_STM32G564XX
++
++config SOC_SERIES
++	default "stm32g5x" if SOC_SERIES_STM32G5X
+diff --git a/soc/roboparty/stm32g5x/clock.c b/soc/roboparty/stm32g5x/clock.c
+new file mode 100644
+index 0000000..fbdd85c
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/clock.c
+@@ -0,0 +1,136 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#define DT_DRV_COMPAT roboparty_stm32g5_rcc
++#include <zephyr/drivers/clock_control.h>
++#include <zephyr/drivers/clock_control/stm32_clock_control.h>
++#include <zephyr/irq.h>
++#include <stm32g5xx_ll_rcc.h>
++#include <stm32g5xx_ll_pwr.h>
++#include <stm32g5xx_ll_bus.h>
++#include <stm32g5xx_ll_crs.h>
++
++static bool clocks_ready;
++
++/* Domain IDs 1/2/3 are FDCAN/USB/TIM2; other IDs are RCC enable-register offsets. */
++static bool gate_valid(const struct stm32_pclken *clock)
++{
++	return clock && (clock->bus == 0x94 || clock->bus == 0x9c ||
++			 clock->bus == 0xa0 || clock->bus == 0xa4);
++}
++
++static int gate(const struct device *dev, clock_control_subsys_t sys, bool on)
++{
++	const struct stm32_pclken *clock = sys;
++	ARG_UNUSED(dev);
++	if (!clocks_ready) {
++		return -EIO;
++	}
++	if (!gate_valid(clock)) {
++		return -EINVAL;
++	}
++	volatile uint32_t *reg = (void *)((uintptr_t)RCC + clock->bus);
++	unsigned int key = irq_lock();
++	if (on) {
++		*reg |= clock->enr;
++	} else {
++		*reg &= ~clock->enr;
++	}
++	(void)*reg;
++	irq_unlock(key);
++	return 0;
++}
++
++static int clock_on(const struct device *dev, clock_control_subsys_t sys)
++{
++	return gate(dev, sys, true);
++}
++
++static int clock_off(const struct device *dev, clock_control_subsys_t sys)
++{
++	return gate(dev, sys, false);
++}
++
++static int clock_rate(const struct device *dev, clock_control_subsys_t sys, uint32_t *rate)
++{
++	const struct stm32_pclken *clock = sys;
++	ARG_UNUSED(dev);
++	if (!clocks_ready) {
++		return -EIO;
++	}
++	if (!clock || !rate) {
++		return -EINVAL;
++	}
++	if (clock->div != 0) {
++		return -ENOTSUP;
++	}
++	if (clock->bus == 1) {
++		*rate = 80000000;
++	} else if (clock->bus == 2) {
++		*rate = 48000000;
++	} else if (clock->bus == 3 || gate_valid(clock)) {
++		*rate = 64000000;
++	} else {
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static int clock_configure(const struct device *dev, clock_control_subsys_t sys, void *data)
++{
++	const struct stm32_pclken *clock = sys;
++	ARG_UNUSED(dev);
++	ARG_UNUSED(data);
++	if (!clocks_ready) {
++		return -EIO;
++	}
++	return clock && clock->bus >= 1 && clock->bus <= 3 && clock->enr == 0 ? 0 : -EINVAL;
++}
++
++static int clock_init(const struct device *dev)
++{
++	ARG_UNUSED(dev);
++	/* Keep the CPU at reset HSI 64 MHz; PLL1 Q feeds only FDCAN at 80 MHz. */
++	if (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_HSI ||
++	    (RCC->CR & (RCC_CR_HSIDIV | RCC_CR_PLL1ON)) ||
++	    (RCC->CFGR2 & (RCC_CFGR2_HPRE | RCC_CFGR2_PPRE1 | RCC_CFGR2_PPRE2)) ||
++	    (RCC->PLL1CFGR & RCC_PLL1CFGR_PLL1FRACEN)) {
++		return -ENOTSUP;
++	}
++	LL_RCC_PLL1_SetSource(LL_RCC_PLL1SOURCE_HSI);
++	LL_RCC_PLL1_SetM(8);
++	LL_RCC_PLL1_SetN(40);
++	LL_RCC_PLL1_SetQ(4);
++	LL_RCC_PLL1_SetInputRange(LL_RCC_PLLINPUTRANGE_8_16);
++	LL_RCC_PLL1_SetVCORange(LL_RCC_PLLVCORANGE_150_420);
++	LL_RCC_PLL1_EnableOutputQ();
++	LL_RCC_PLL1_Enable();
++	LL_RCC_HSI48_Enable();
++	for (uint32_t timeout = 1000000; timeout; --timeout) {
++		if (LL_RCC_PLL1_IsReady() && LL_RCC_HSI48_IsReady()) {
++			LL_RCC_SetFDCANClockSource(LL_RCC_FDCAN_CLKSOURCE_PLL1Q);
++			LL_RCC_SetUSBClockSource(LL_RCC_USB_CLKSOURCE_HSI48);
++			LL_PWR_EnableUSBSupply();
++			/* Trim the 48 MHz RC oscillator against the host's 1 kHz SOF. */
++			LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_CRS);
++			LL_CRS_SetSyncSignalSource(CRS, LL_CRS_SYNC_SOURCE_USB);
++			LL_CRS_SetSyncDivider(CRS, LL_CRS_SYNC_DIV_1);
++			LL_CRS_SetSyncPolarity(CRS, LL_CRS_SYNC_POLARITY_RISING);
++			LL_CRS_SetReloadCounter(CRS, 47999);
++			LL_CRS_SetFreqErrorLimit(CRS, 34);
++			LL_CRS_EnableAutoTrimming(CRS);
++			LL_CRS_EnableFreqErrorCounter(CRS);
++			clocks_ready = true;
++			return 0;
++		}
++	}
++	return -ETIMEDOUT;
++}
++
++static DEVICE_API(clock_control, clock_api) = {
++	.on = clock_on,
++	.off = clock_off,
++	.get_rate = clock_rate,
++	.configure = clock_configure,
++};
++
++DEVICE_DT_INST_DEFINE(0, clock_init, NULL, NULL, NULL, PRE_KERNEL_1,
++		      CONFIG_CLOCK_CONTROL_INIT_PRIORITY, &clock_api);
+diff --git a/soc/roboparty/stm32g5x/soc.c b/soc/roboparty/stm32g5x/soc.c
+new file mode 100644
+index 0000000..054809e
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/soc.c
+@@ -0,0 +1,51 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#include <soc.h>
++#include <stddef.h>
++#include <zephyr/devicetree.h>
++#include <zephyr/sys/util.h>
++
++/* Check our board description against the pinned vendor device pack. */
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(rcc)) == RCC_BASE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(gpioa)) == GPIOA_BASE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(gpiob)) == GPIOB_BASE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(fdcan1)) == FDCAN1_BASE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(fdcan2)) == FDCAN2_BASE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(fdcan3)) == FDCAN3_BASE);
++BUILD_ASSERT(DT_REG_ADDR_BY_IDX(DT_NODELABEL(fdcan1), 1) == SRAMCAN_BASE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(usb)) == USB_DRD_FS_BASE);
++BUILD_ASSERT(DT_PROP(DT_NODELABEL(usb), ram_size) == USB_DRD_PMA_SIZE);
++BUILD_ASSERT(DT_IRQ_BY_IDX(DT_NODELABEL(fdcan1), 0, irq) == FDCAN1_IT0_IRQn);
++BUILD_ASSERT(DT_IRQ_BY_IDX(DT_NODELABEL(fdcan1), 1, irq) == FDCAN1_IT1_IRQn);
++BUILD_ASSERT(DT_IRQ_BY_IDX(DT_NODELABEL(fdcan2), 0, irq) == FDCAN2_IT0_IRQn);
++BUILD_ASSERT(DT_IRQ_BY_IDX(DT_NODELABEL(fdcan2), 1, irq) == FDCAN2_IT1_IRQn);
++BUILD_ASSERT(DT_IRQ_BY_IDX(DT_NODELABEL(fdcan3), 0, irq) == FDCAN3_IT0_IRQn);
++BUILD_ASSERT(DT_IRQ_BY_IDX(DT_NODELABEL(fdcan3), 1, irq) == FDCAN3_IT1_IRQn);
++BUILD_ASSERT(DT_IRQN(DT_NODELABEL(usb)) == USB_DRD_FS_IRQn);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(timers2)) == TIM2_BASE);
++BUILD_ASSERT(DT_IRQN(DT_NODELABEL(timers2)) == TIM2_IRQn);
++BUILD_ASSERT(DT_REG_SIZE(DT_NODELABEL(sram0)) == SRAM1_SIZE + SRAM2_SIZE + SRAM3_SIZE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(sram0)) == SRAM1_BASE);
++BUILD_ASSERT(SRAM1_BASE + SRAM1_SIZE == SRAM2_BASE);
++BUILD_ASSERT(SRAM2_BASE + SRAM2_SIZE == SRAM3_BASE);
++BUILD_ASSERT(DT_REG_ADDR(DT_NODELABEL(flash0)) == FLASH_BASE);
++BUILD_ASSERT(DT_REG_SIZE(DT_NODELABEL(flash0)) == FLASH_SIZE_DEFAULT);
++BUILD_ASSERT(DT_CLOCKS_CELL(DT_NODELABEL(gpioa), bits) == RCC_AHB4ENR_GPIOAEN);
++BUILD_ASSERT(DT_CLOCKS_CELL(DT_NODELABEL(gpiob), bits) == RCC_AHB4ENR_GPIOBEN);
++BUILD_ASSERT(DT_CLOCKS_CELL(DT_NODELABEL(timers2), bits) == RCC_APB1LENR_TIM2EN);
++BUILD_ASSERT(DT_CLOCKS_CELL(DT_NODELABEL(fdcan1), bits) == RCC_APB1HENR_FDCANEN);
++BUILD_ASSERT(DT_CLOCKS_CELL(DT_NODELABEL(fdcan2), bits) == RCC_APB1HENR_FDCANEN);
++BUILD_ASSERT(DT_CLOCKS_CELL(DT_NODELABEL(fdcan3), bits) == RCC_APB1HENR_FDCANEN);
++BUILD_ASSERT(DT_CLOCKS_CELL(DT_NODELABEL(usb), bits) == RCC_APB2ENR_USBEN);
++BUILD_ASSERT(DT_PROP(DT_NODELABEL(rcc), clock_frequency) == 64000000);
++BUILD_ASSERT(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC == 64000000);
++BUILD_ASSERT(offsetof(RCC_TypeDef, AHB4ENR) == 0x94);
++BUILD_ASSERT(offsetof(RCC_TypeDef, APB1LENR) == 0x9c);
++BUILD_ASSERT(offsetof(RCC_TypeDef, APB1HENR) == 0xa0);
++BUILD_ASSERT(offsetof(RCC_TypeDef, APB2ENR) == 0xa4);
++BUILD_ASSERT(offsetof(RCC_TypeDef, APB1LRSTR) == 0x74);
++
++void soc_early_init_hook(void)
++{
++	/* TZEN=0, reset HSI clock, no bootloader clock inheritance. */
++	SystemCoreClock = 64000000U;
++}
+diff --git a/soc/roboparty/stm32g5x/soc.h b/soc/roboparty/stm32g5x/soc.h
+new file mode 100644
+index 0000000..c1deec3
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/soc.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++#ifndef CANNECTIVITY_STM32G5_SOC_H_
++#define CANNECTIVITY_STM32G5_SOC_H_
++#ifndef _ASMLANGUAGE
++#include <stm32g5xx.h>
++#include <stm32_hal.h>
++#endif
++#endif
+diff --git a/soc/roboparty/stm32g5x/soc.yml b/soc/roboparty/stm32g5x/soc.yml
+new file mode 100644
+index 0000000..3114635
+--- /dev/null
++++ b/soc/roboparty/stm32g5x/soc.yml
+@@ -0,0 +1,5 @@
++# SPDX-License-Identifier: Apache-2.0
++series:
++  - name: stm32g5x
++    socs:
++      - name: stm32g564xx
+diff --git a/tests/scripts/test_stm32_fs_matrix.py b/tests/scripts/test_stm32_fs_matrix.py
+new file mode 100644
+index 0000000..05ecf59
+--- /dev/null
++++ b/tests/scripts/test_stm32_fs_matrix.py
+@@ -0,0 +1,86 @@
++# SPDX-License-Identifier: Apache-2.0
++"""Offline regression tests for STM32 package/pin validation."""
++
++import importlib.util
++import json
++from pathlib import Path
++from types import SimpleNamespace as Node
++import unittest
++
++
++spec = importlib.util.spec_from_file_location(
++    "matrix", Path(__file__).resolve().parents[2] / "scripts/stm32-fs-matrix.py"
++)
++matrix = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(matrix)
++
++
++def pin(port, line, mode):
++    return ((ord(port) - ord("A")) << 9) | (line << 5) | mode
++
++
++class PinValidationTests(unittest.TestCase):
++    def setUp(self):
++        assignments = {
++            "fdcan1": [("FDCAN1_RX", "A", 6, 9), ("FDCAN1_TX", "A", 7, 9)],
++            "fdcan2": [("FDCAN2_RX", "A", 4, 13), ("FDCAN2_TX", "A", 5, 13)],
++            "fdcan3": [("FDCAN3_RX", "A", 8, 6), ("FDCAN3_TX", "B", 7, 8)],
++            "zephyr_udc0": [("USB_DM", "A", 11, 16), ("USB_DP", "A", 12, 16)],
++        }
++        self.package = {"die_pads": {}, "signals": []}
++        self.edt = Node(label2node={})
++        for label, entries in assignments.items():
++            groups = []
++            for signal, port, line, mode in entries:
++                pad = f"P{port}{line}"
++                self.package["die_pads"][pad] = {}
++                self.package["signals"].append({
++                    "name": signal, "die_pad": pad,
++                    "function": {"type": "additional"} if mode == 16 else
++                                {"type": "alternate", "id": f"AF{mode}"},
++                })
++                groups.append(Node(props={"pinmux": Node(val=pin(port, line, mode))}, children={}))
++            self.edt.label2node[label] = Node(props={"pinctrl-0": Node(val=groups)})
++        self.descriptor = Node(read_text=lambda: json.dumps(self.package))
++
++    def check(self):
++        return matrix.check_g5_pins(self.edt, self.descriptor)
++
++    def group(self, label, index=0):
++        return self.edt.label2node[label].props["pinctrl-0"].val[index]
++
++    def test_valid_package_and_grouped_pins(self):
++        group = self.group("fdcan1")
++        group.props["pinmux"].val = [group.props["pinmux"].val]
++        self.assertEqual(len(self.check()), 8)
++        self.assertEqual(self.check()["USB_DM"], {"pin": "PA11", "mode": "analog"})
++
++    def test_wrong_alternate_function(self):
++        self.group("fdcan1").props["pinmux"].val = pin("A", 6, 8)
++        with self.assertRaisesRegex(ValueError, "invalid or duplicate signal"):
++            self.check()
++
++    def test_absent_package_pad(self):
++        del self.package["die_pads"]["PA6"]
++        with self.assertRaisesRegex(ValueError, "absent"):
++            self.check()
++
++    def test_shared_usb_can_pad(self):
++        self.group("fdcan1").props["pinmux"].val = pin("A", 11, 9)
++        self.package["signals"][0]["die_pad"] = "PA11"
++        with self.assertRaisesRegex(ValueError, "already used"):
++            self.check()
++
++    def test_missing_tx(self):
++        self.edt.label2node["fdcan2"].props["pinctrl-0"].val.pop()
++        with self.assertRaisesRegex(ValueError, "missing pins"):
++            self.check()
++
++    def test_duplicate_signal_on_different_pad(self):
++        self.package["signals"][1]["name"] = "FDCAN1_RX"
++        with self.assertRaisesRegex(ValueError, "invalid or duplicate signal"):
++            self.check()
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/west.yml b/west.yml
+index ccdb2ae..33d9eef 100644
+--- a/west.yml
++++ b/west.yml
+@@ -7,6 +7,14 @@ manifest:
+     - name: zephyrproject-rtos
+       url-base: https://github.com/zephyrproject-rtos
+   projects:
++    - name: stm32g5xx-dfp
++      url: https://github.com/STMicroelectronics/stm32g5xx-dfp
++      revision: 2288c48393e70c4a787cd0c1b5bcaf163d67340f
++      path: modules/hal/stm32g5xx-dfp
++    - name: stm32g5xx-drivers
++      url: https://github.com/STMicroelectronics/stm32g5xx-drivers
++      revision: 6df73a63fe7e2b480df2a17fbee2c7657337442e
++      path: modules/hal/stm32g5xx-drivers
+     - name: zephyr
+       remote: zephyrproject-rtos
+       revision: main
+diff --git a/zephyr/module.yml b/zephyr/module.yml
+index 3213e42..81006c6 100644
+--- a/zephyr/module.yml
++++ b/zephyr/module.yml
+@@ -8,3 +8,5 @@ build:
+   cmake: .
+   settings:
+     dts_root: .
++    board_root: .
++    soc_root: .

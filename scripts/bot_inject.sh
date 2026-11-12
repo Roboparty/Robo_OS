@@ -11,7 +11,7 @@
 
 APT_DIR="/srv/apt"
 INCOMING_DIR="/srv/apt-incoming"
-SUITES=("common" "robopi0" "robopi1" "robopi2" "robopi3" "robopi4" "x86")
+SUITES=("common" "robopi0" "robopi1" "robopi2" "robopi3" "robopi4" "x86" "test")
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"

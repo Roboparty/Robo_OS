@@ -1,0 +1,1807 @@
+diff --git a/readme.md b/readme.md
+index 229b4de..e2bd18d 100644
+--- a/readme.md
++++ b/readme.md
+@@ -5,6 +5,89 @@
+ 
+ ---
+ 
++## HPM6E80 / RT-Thread 迁移入口
++
++`rtthread/` 是独立的 HPM6E00EVK / HPM6E80 目标，使用 SCons 和 SOES；下文原有
++CMake 流程仍对应 HPM5E31。依赖提交固定在 `rtthread/dependencies.json`，构建不修改第三方源码。
++
++从多仓工作区根目录运行（需要 Python 3、SCons、Git 和 HPM RISC-V 工具链）：
++
++```sh
++python3 android/EtherCANFD/scripts/build_rtthread.py \
++  --workspace test/tmp/ethercanfd-hpm6e80 \
++  --toolchain hex/toolchains/rv32imac_zicsr_zifencei_multilib_b_ext-linux/bin \
++  --fetch
++
++python3 android/EtherCANFD/scripts/check_soes.py \
++  --soes test/tmp/ethercanfd-hpm6e80/SOES \
++  --output test/tmp/ethercanfd-hpm6e80/check
++```
++
++固件输出为工作目录下的 `build-hpm6e80/rtthread.elf`、`rtthread.bin`。
++本目标的 BIN 从 **`0x80000000`** 烧录，包含 Flash 起始锚点；不要沿用旧目标的 `+0x400` 偏移。
++`build-hpm6e80/applications/generated/` 中的 `EtherCANFD.xml` 是本目标的 ESI，
++`ethercanfd-sii.bin` 是 EEPROM 数据，**不是可烧录的固件**。
++
++当前实现：RT-Thread 启动、SOES PDI 事件唤醒及 1 ms 兜底轮询、CoE 对象字典、只读 EEPROM 模拟、
++四路逻辑 PDO（每方向 288 字节）、CAN FD 非阻塞转发。对象字典和 SII 由原 ESI 生成，
++新目标不链接 SSC。GPIO/PHY 使用上游 EVK 配置；逻辑 CAN0 对应 EVK 的 **MCAN4**，
++其余三路没有物理映射，启用请求返回 SDO 错误。自定义板须修改 `rtthread/port/can_port.c`
++并配置对应引脚、收发器和独立消息 RAM，不能直接套用旧 HPM5E31 板。
++
++通道默认禁用；CAN 配置只允许在 PREOP 写入。退出 OP、IgnoreTx 或看门狗超时会请求取消
++待发帧，重新进入 OP 后需要新的触发计数。BUS-OFF 后不自动恢复，必须先显式禁用通道。
++每次 CAN 发送采用 one-shot，待发请求 20 ms 后取消；这不等于撤回已经在总线上发送的帧。
++
++已做交叉编译及主机端 ASan/UBSan 对象字典、完整 64 字节负载和 SII 一致性检查。
++2026-11-12 已通过 `10.43.14.82` 的 J-Link 在 HPM6E00EVK 上完成基础启动验证
++（`--mode auto --dc-sync0`，按键未按下，进入 EtherCAT）：备份原有 16 MiB Flash，
++烧录后逐字节回读一致；ESC AL Status 为 `0x0001`（INIT），AL Error 为 `0`，
++EEPROM Control/Status 为 `0x0030`（模拟模式，无加载/校验错误）。约 5 秒运行窗口内
++RT-Thread tick 从 `0x3078` 增至 `0x4400`（5000 tick），SOES 轮询断点重复命中。
++调试断点会暂停 CPU，这些记录只证明启动与循环推进，不代表实时性验收。
++上板修正了 ESC 核心时钟开启前访问 PDI 导致停滞，以及 Newlib 未暴露字节序宏导致
++SOES 错误交换字节的问题；构建现在显式提供字节序别名，并用编译期断言检查转换。
++EtherCAT 主站状态切换、PDO/DC、USB 主机侧驱动与实际 CAN 收发尚未验证；
++自定义板四路接线、EEPROM 持久化写入及整机时序验收仍待完成。
++默认 ESI 不宣告 DC；所有配置均不宣告 FoE 或 CompleteAccess。
++
++`--dc-sync0` 显式启用实验性 DC 模式并生成对应 ESI：仅接受 SYNC0、1–10 ms 周期，
++周期必须为整数微秒。默认仍为 free-run；DC 激活后，线程在 SYNC0 唤醒时更新两个方向
++的 PDO，ISR 只确认中断并记录序号/时间。`0x1C32/0x1C33:01` 为只读实际模式，
++由 ESC DC 激活寄存器决定，不接受 SDO 模式选择。SYNC1、自动激活及范围外周期被拒绝。
++OP 中积压多个 SYNC0、处理延迟达到一个周期、连续三个周期没有脉冲，或累计三个周期
++缺少新输出 PDO，均转 SAFEOP+ERROR；运行中改变 DC 激活/周期也会停止输出。
++软件输出看门狗按真实经过的毫秒计时，不再依赖线程唤醒次数或 RT-Thread tick 频率。
++这些检查通过主机端 ASan/UBSan 测试，但 **DC 相位、调度延迟和 CAN 时序尚未上板验收**。
++带 DC 的主机检查命令是在上述 `check_soes.py` 命令末尾添加 `--dc-sync0`。
++
++USB 模式复用 `src/gs_usb.c`，以 BSP 静态向量包装接入 CherryUSB，主循环每轮让出
++1 ms，保留 EWDG 看门狗。EVK 向主机报告 **1 路 CAN（MCAN4）**；诊断计数器保留
++原四路 ABI，未映射通道为零。这里的 1 ms 调度及 USB 吞吐尚未上板测量。
++2026-11-12 通过调试器临时选择 USB 启动分支，发现并修复动态中断注册与 BSP 静态
++向量不匹配的问题；USB0、MCAN4、ESC PDI 和 SYNC0 均改用 `SDK_DECLARE_EXT_ISR_M`。
++构建后自动检查 ELF 对应向量指向有效处理函数，旧错误镜像已验证会被检查拒绝。
++修复后 USB 主循环计数在约 5 秒运行窗口内从 `0x12BB` 增至 `0x2643`（5000 轮），
++板端记录一次 RESET、一次 CONFIGURED；USB 地址为 13，非缓存区的
++`enumeration_done/is_connected/out_armed` 均为 1。该记录证明板端收到主机配置请求，
++但尚未核对主机设备列表、gs_usb 驱动绑定或 CAN 流量，也不构成调度抖动/吞吐验收。
++测试完成后已清除断点并复位，恢复默认 EtherCAT INIT 状态。
++USB 依赖 HPM SDK `ccc5ec467a047f3ea85cd2fa4565e91db7135a38` 中的 CherryUSB，
++脚本校验提交及 middleware 未修改，再复制到构建目录编译：
++
++```sh
++python3 android/EtherCANFD/scripts/build_rtthread.py \
++  --workspace test/tmp/ethercanfd-hpm6e80 \
++  --toolchain hex/toolchains/rv32imac_zicsr_zifencei_multilib_b_ext-linux/bin \
++  --usb-sdk hex/hpm_sdk --mode auto --fetch
++```
++
++`--mode ethercat` 是默认值；`--mode usb` 固定 USB 启动；`--mode auto` 在启动时
++连续 20 次、间隔 1 ms 采样 EVK PB24 用户按键，全部为按下状态时进入 USB，否则进入
++EtherCAT。模式只在启动时选择，运行中不切换。按键和 LED 映射仅适用于 EVK。
++
++---
++
+ ## 1. 概览
+ 
+ 基于 HPMicro **HPM5E31**（RISC-V rv32imac）的 USB-CANFD 转换固件。固件把 4 路独立
+diff --git a/rtthread/applications/SConscript b/rtthread/applications/SConscript
+new file mode 100644
+index 0000000..e14590d
+--- /dev/null
++++ b/rtthread/applications/SConscript
+@@ -0,0 +1,30 @@
++# SPDX-License-Identifier: GPL-3.0-only
++import os
++from building import *
++
++cwd = GetCurrentDir()
++soes = os.path.join(os.environ['SOES_ROOT'], 'soes')
++src = Glob('*.c') + Glob('port/*.c') + Glob('generated/*.c')
++src += [os.path.join(soes, name) for name in
++        ('esc.c', 'esc_coe.c', 'ecat_slv.c')]
++usb_paths = []
++# Expose only the endian aliases required by SOES gcc/cc.h. Enabling all
++# Newlib BSD extensions conflicts with RT-Thread's sys/select.h include order.
++defines = ['BYTE_ORDER=_BYTE_ORDER', 'LITTLE_ENDIAN=_LITTLE_ENDIAN',
++           'BIG_ENDIAN=_BIG_ENDIAN']
++if GetDepend('ETHERCANFD_USB'):
++    usb = os.environ['CHERRYUSB_ROOT']
++    defines += ['CONFIG_CHERRYUSB_CUSTOM_IRQ_HANDLER', 'USB_MAX_EP0_SIZE=64']
++    src += Glob('usb/*.c')
++    src += [os.path.join(os.environ['HPM_SDK_ROOT'], 'drivers/src/hpm_ewdg_drv.c')]
++    src += [os.path.join(usb, name) for name in (
++        'core/usbd_core.c', 'port/hpmicro/usb_dc_hpm.c',
++        'port/hpmicro/usb_glue_hpm.c')]
++    usb_paths = [os.path.join(cwd, 'usb')]
++    usb_paths += [os.path.join(usb, name) for name in
++                  ('common', 'core', 'osal', 'port/hpmicro')]
++group = DefineGroup('EtherCANFD', src, depend=[''], CPPPATH=[
++    cwd, os.path.join(cwd, 'port'), os.path.join(cwd, 'generated'),
++    soes, os.path.join(soes, 'include/sys/gcc')] + usb_paths,
++    LOCAL_CPPDEFINES=defines)
++Return('group')
+diff --git a/rtthread/applications/gateway.c b/rtthread/applications/gateway.c
+new file mode 100644
+index 0000000..91de21b
+--- /dev/null
++++ b/rtthread/applications/gateway.c
+@@ -0,0 +1,209 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include <rtthread.h>
++#include <string.h>
++#include "board.h"
++#include "can_port.h"
++#include "ecat_slv.h"
++#include "esc_coe.h"
++#include "object_dictionary.h"
++#include "gateway.h"
++
++static bool ready[4];
++static bool clocked[4];
++static bool faulted[4];
++static uint16_t trigger[4], sequence[4];
++static uint16_t observed[4];
++static rt_tick_t observed_at[4];
++static rt_tick_t submitted[4];
++static bool output_active;
++
++static void cancel(unsigned ch)
++{
++    MCAN_Type *base = gateway_can_base(ch);
++    if (base && clocked[ch]) base->TXBCR = base->TXBRP;
++}
++
++void gateway_stop(void)
++{
++    output_active = false;
++    for (unsigned ch = 0; ch < 4; ++ch) {
++        cancel(ch);
++        trigger[ch] = od_get(0x7000 + 0x10 * ch, 5);
++        observed[ch] = trigger[ch];
++    }
++}
++
++static bool configure(unsigned ch)
++{
++    MCAN_Type *base = gateway_can_base(ch);
++    uint16_t idx = 0x8000 + ch * 0x10;
++    ready[ch] = false;
++    if (!base) return od_get(idx, 1) == 0;
++    if (!gateway_can_prepare(ch)) return false;
++    board_init_can(base);
++    uint32_t clock = board_init_can_clock(base);
++    if (!clock) return false;
++    clocked[ch] = true;
++    cancel(ch);
++    mcan_deinit(base);
++    if (!od_get(idx, 1)) {
++        faulted[ch] = false;
++        return true;
++    }
++    if (faulted[ch]) return false; /* Explicit disable required after bus-off. */
++    mcan_config_t cfg;
++    mcan_get_default_config(base, &cfg);
++    cfg.baudrate = od_get(idx, 3);
++    cfg.baudrate_fd = od_get(idx, 4);
++    cfg.enable_canfd = od_get(idx, 2) != 0;
++    cfg.use_lowlevel_timing_setting = false;
++    cfg.enable_tdc = cfg.enable_canfd && cfg.baudrate_fd > 1000000;
++    uint32_t offset = (uint64_t)clock * 3 / ((uint64_t)cfg.baudrate_fd * 4);
++    if (cfg.enable_tdc && offset > 127) return false;
++    cfg.tdc_config.ssp_offset = offset;
++    cfg.tdc_config.filter_window_length = 0;
++    cfg.mode = mcan_mode_normal;
++    cfg.interrupt_mask = 0;
++    cfg.disable_auto_retransmission = true;
++    mcan_get_default_ram_config(base, &cfg.ram_config, cfg.enable_canfd);
++    ready[ch] = mcan_init(base, &cfg, clock) == status_success;
++    if (!ready[ch]) mcan_deinit(base);
++    trigger[ch] = od_get(0x7000 + ch * 0x10, 5);
++    return ready[ch];
++}
++
++void gateway_init(void)
++{
++    for (unsigned ch = 0; ch < 4; ++ch) configure(ch);
++    gateway_stop();
++}
++
++void cb_set_outputs(void)
++{
++    bool active = (ESCvar.ALstatus & 0x1f) == ESCop && !od_get(0xa000, 1);
++    if (!active || !output_active) {
++        gateway_stop();
++        output_active = active;
++        return;
++    }
++    for (unsigned ch = 0; ch < 4; ++ch) {
++        uint16_t idx = 0x7000 + ch * 0x10;
++        uint16_t next = od_get(idx, 5);
++        MCAN_Type *base = gateway_can_base(ch);
++        if (!ready[ch] || !next || next == trigger[ch]) continue;
++        if (next != observed[ch]) {
++            observed[ch] = next;
++            observed_at[ch] = rt_tick_get();
++        }
++        if (rt_tick_get() - observed_at[ch] >= rt_tick_from_millisecond(20)) {
++            trigger[ch] = next;
++            continue;
++        }
++        /* Reject a new request while the previous one is still pending. */
++        if (base->TXBRP) continue;
++        mcan_tx_frame_t frame = {0};
++        unsigned dlc = od_get(idx, 3), flags = od_get(idx, 4);
++        uint32_t lo = od_get(idx, 1), hi = od_get(idx, 2);
++        trigger[ch] = next;
++        if (dlc > 15 || (flags & ~3u) || (hi & 0xc000u) ||
++            (!(flags & 1) && (dlc > 8 || (flags & 2))) ||
++            ((flags & 1) && !od_get(0x8000 + ch * 0x10, 2)) ||
++            (!(hi & 0x2000) && (hi || lo > 0x7ff))) continue;
++        frame.use_ext_id = !!(hi & 0x2000);
++        if (frame.use_ext_id) frame.ext_id = ((hi & 0x1fff) << 16) | lo;
++        else frame.std_id = lo;
++        frame.dlc = dlc;
++        frame.canfd_frame = flags & 1;
++        frame.bitrate_switch = !!(flags & 2);
++        memcpy(frame.data_8, od_data(idx, 6, 30), 30);
++        memcpy(frame.data_8 + 30, od_data(idx, 7, 30), 30);
++        memcpy(frame.data_8 + 60, od_data(idx, 8, 4), 4);
++        uint32_t slot;
++        if (mcan_transmit_via_txfifo_nonblocking(base, &frame, &slot) == status_success)
++            submitted[ch] = rt_tick_get();
++    }
++}
++
++void cb_get_inputs(void)
++{
++    for (unsigned ch = 0; ch < 4; ++ch) {
++        if (!ready[ch]) continue;
++        uint16_t idx = 0x6000 + ch * 0x10;
++        mcan_rx_message_t frame;
++        if (mcan_read_rxfifo(gateway_can_base(ch), 0, &frame) != status_success) continue;
++        if (od_get(0xa000, 2) || frame.rtr) continue;
++        uint32_t id = frame.use_ext_id ? frame.ext_id : frame.std_id;
++        od_set(idx, 1, id & 0xffff);
++        od_set(idx, 2, (id >> 16) | (frame.use_ext_id ? 0x2000 : 0));
++        od_set(idx, 3, frame.dlc);
++        od_set(idx, 4, frame.canfd_frame | (frame.bitrate_switch << 1));
++        if (++sequence[ch] == 0) ++sequence[ch];
++        od_set(idx, 5, sequence[ch]);
++        uint8_t payload[64] = {0};
++        memcpy(payload, frame.data_8, mcan_get_message_size_from_dlc(frame.dlc));
++        memcpy(od_data(idx, 6, 30), payload, 30);
++        memcpy(od_data(idx, 7, 30), payload + 30, 30);
++        memcpy(od_data(idx, 8, 4), payload + 60, 4);
++    }
++}
++
++void gateway_poll(void)
++{
++    if ((ESCvar.ALstatus & 0x1f) != ESCop || od_get(0xa000, 1)) gateway_stop();
++    for (unsigned ch = 0; ch < 4; ++ch) {
++        MCAN_Type *base = gateway_can_base(ch);
++        if (!base || !ready[ch]) continue;
++        mcan_error_count_t errors;
++        mcan_get_error_counter(base, &errors);
++        bool busoff = mcan_is_in_busoff_state(base);
++        mcan_protocol_status_t status;
++        mcan_get_protocol_status(base, &status);
++        od_set(0x9000 + ch * 0x10, 1, busoff ? 3 : status.in_error_passive_state ? 2 : status.in_warning_state ? 1 : 0);
++        od_set(0x9000 + ch * 0x10, 2, mcan_get_last_error_code(base));
++        od_set(0x9000 + ch * 0x10, 3, errors.transmit_error_count);
++        od_set(0x9000 + ch * 0x10, 4, errors.receive_error_count);
++        if (base->TXBRP && rt_tick_get() - submitted[ch] >= rt_tick_from_millisecond(20)) cancel(ch);
++        if (busoff) {
++            cancel(ch);
++            mcan_deinit(base);
++            ready[ch] = false;
++            faulted[ch] = true;
++        }
++    }
++}
++
++uint32_t gateway_validate_sdo(uint16_t index, uint8_t subindex, void *data, size_t size, uint16_t flags)
++{
++    if (index >= 0x8000 && index <= 0x8030 && !(index & 0xf)) {
++        if ((flags & COMPLETE_ACCESS_FLAG) || subindex == 0 || subindex > 5) return ABORT_UNSUPPORTED;
++        if ((ESCvar.ALstatus & 0x0f) != ESCpreop) return ABORT_NOTINTHISSTATE;
++        uint32_t value = 0;
++        if (size != ((subindex == 3 || subindex == 4) ? 4u : 1u)) return ABORT_TYPEMISMATCH;
++        memcpy(&value, data, size);
++        if ((subindex <= 2 || subindex == 5) && value > 1) return ABORT_VALUE_EXCEEDED;
++        if (subindex == 5 && value) return ABORT_UNSUPPORTED;
++        if (subindex == 1 && value && !gateway_can_base((index - 0x8000) / 16)) return ABORT_VALUE_EXCEEDED;
++        if (subindex == 3 && (value < 10000 || value > 2000000)) return ABORT_VALUE_EXCEEDED;
++        if (subindex == 4 && (value < 10000 || value > 8000000)) return ABORT_VALUE_EXCEEDED;
++    }
++    /* Sync mode follows ESC registers; writable timing/log controls are unsupported. */
++    if (index == 0x1c32 || index == 0x1c33 || index == 0xa010) return ABORT_UNSUPPORTED;
++    if (index == 0xa000) {
++        if ((flags & COMPLETE_ACCESS_FLAG) || size != 1 || subindex < 1 || subindex > 2)
++            return ABORT_UNSUPPORTED;
++        if (*(uint8_t *)data > 1) return ABORT_VALUE_EXCEEDED;
++    }
++    return 0;
++}
++
++uint32_t gateway_apply_sdo(uint16_t index, uint8_t subindex, uint16_t flags)
++{
++    (void)subindex;
++    (void)flags;
++    if (index >= 0x8000 && index <= 0x8030 && !(index & 0xf)) {
++        if (configure((index - 0x8000) / 16)) return 0;
++        od_set(index, 1, 0);
++        return ABORT_GENERALERROR;
++    }
++    return 0;
++}
+diff --git a/rtthread/applications/gateway.h b/rtthread/applications/gateway.h
+new file mode 100644
+index 0000000..5f80677
+--- /dev/null
++++ b/rtthread/applications/gateway.h
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#pragma once
++#include <stdint.h>
++#include <stddef.h>
++void gateway_init(void);
++void gateway_poll(void);
++void gateway_stop(void);
++uint32_t gateway_validate_sdo(uint16_t index, uint8_t subindex, void *data, size_t size, uint16_t flags);
++uint32_t gateway_apply_sdo(uint16_t index, uint8_t subindex, uint16_t flags);
+diff --git a/rtthread/applications/main.c b/rtthread/applications/main.c
+new file mode 100644
+index 0000000..9b36a19
+--- /dev/null
++++ b/rtthread/applications/main.c
+@@ -0,0 +1,95 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include <rtthread.h>
++#include "ecat_slv.h"
++#include "esc_port.h"
++#include "gateway.h"
++#include "pdo.h"
++#include "sync_guard.h"
++#ifdef ETHERCANFD_USB
++#include "gs_usb_port.h"
++#endif
++
++int main(void)
++{
++#ifdef ETHERCANFD_USB
++    if (gs_usb_boot_selected()) {
++        app_init_led_pins();
++        rt_kprintf("EtherCANFD: HPM6E80 / RT-Thread / gs_usb (MCAN4)\n");
++        gs_usb_run();
++        return 0;
++    }
++#endif
++    rt_kprintf("EtherCANFD: HPM6E80 / RT-Thread / SOES (PDI events)\n");
++    if (hpm_soes_init() != RT_EOK) {
++        rt_kprintf("ESC startup timed out; gateway not started\n");
++        return -1;
++    }
++    esc_cfg_t config = {
++        .use_interrupt = 1,
++        .watchdog_cnt = 100,
++        .application_hook = gateway_poll,
++        .safeoutput_override = gateway_stop,
++        .skip_default_initialization = true,
++        .rxpdo_override = gateway_rxpdo,
++        .txpdo_override = gateway_txpdo,
++        .pre_object_download_hook = gateway_validate_sdo,
++        .post_object_download_hook = gateway_apply_sdo,
++        .esc_hw_eep_handler = hpm_soes_eeprom,
++        .esc_hw_interrupt_enable = hpm_soes_irq_enable,
++        .esc_hw_interrupt_disable = hpm_soes_irq_disable,
++        .esc_check_dc_handler = hpm_soes_check_dc,
++    };
++    ecat_slv_init(&config);
++    gateway_init();
++    hpm_soes_irq_enable(ESCREG_ALEVENT_CONTROL | ESCREG_ALEVENT_SMCHANGE |
++        ESCREG_ALEVENT_SM0 | ESCREG_ALEVENT_SM1 | ESCREG_ALEVENT_EEP | ESCREG_ALEVENT_WD);
++    uint32_t previous = hpm_soes_time_us();
++    uint32_t last_sequence = 0;
++    struct sync_guard guard = {0};
++    for (;;) {
++        ecat_slv_poll();
++        uint32_t pulse_us;
++        uint32_t sequence = hpm_soes_sync_snapshot(&pulse_us);
++        uint32_t now = hpm_soes_time_us();
++        uint32_t elapsed_ms = (now - previous) / 1000;
++        if (elapsed_ms) {
++            if (elapsed_ms >= 100 && (ESCvar.App.state & APPSTATE_OUTPUT)) {
++                ESC_ALstatusgotoerror(ESCsafeop | ESCerror, ALERR_WATCHDOG);
++            }
++            for (unsigned i = 0; i < elapsed_ms && i < 100; ++i)
++                DIG_process(DIG_PROCESS_WD_FLAG);
++            previous += elapsed_ms * 1000;
++        }
++        if (ESCvar.ALevent & ESCREG_ALEVENT_WD) {
++            uint16_t status;
++            ESC_read(ESCREG_WDSTATUS, &status, sizeof(status));
++            if (!(etohs(status) & 1) && (ESCvar.App.state & APPSTATE_OUTPUT))
++                ESC_ALstatusgotoerror(ESCsafeop | ESCerror, ALERR_WATCHDOG);
++        }
++        bool dc = ESCvar.dcsync != 0;
++        bool sync = sequence != last_sequence;
++        if (ESCvar.App.state & APPSTATE_OUTPUT) {
++            uint8_t activation;
++            ESC_read(ESCREG_SYNC_ACT, &activation, sizeof(activation));
++            bool active = (activation & (ESCREG_SYNC_ACT_ACTIVATED |
++                                        ESCREG_SYNC_AUTO_ACTIVATED)) != 0;
++            uint32_t ns = 0;
++            if (dc) ESC_read(ESCREG_SYNC0_CYCLE_TIME, &ns, sizeof(ns));
++            if (active != dc || (dc && (activation != 3 ||
++                    etohl(ns) != hpm_soes_cycle_us * 1000)))
++                ESC_ALstatusgotoerror(ESCsafeop | ESCerror, ALERR_DCINVALIDSYNCCFG);
++        }
++        if (dc && !sync_guard_update(&guard, now, sequence, pulse_us,
++                hpm_soes_cycle_us, (ESCvar.ALevent & ESCREG_ALEVENT_SM2) != 0,
++                (ESCvar.App.state & APPSTATE_OUTPUT) != 0)) {
++            ESC_ALstatusgotoerror(ESCsafeop | ESCerror, ALERR_SYNCERROR);
++        }
++        if (!dc) guard = (struct sync_guard){sequence, now, 0, false};
++        last_sequence = sequence;
++        uint8_t flags = DIG_PROCESS_APP_HOOK_FLAG;
++        if (!dc || sync)
++            flags |= DIG_PROCESS_OUTPUTS_FLAG | DIG_PROCESS_INPUTS_FLAG;
++        DIG_process(flags);
++        hpm_soes_wait();
++    }
++}
+diff --git a/rtthread/applications/object_dictionary.c b/rtthread/applications/object_dictionary.c
+new file mode 100644
+index 0000000..b3e624c
+--- /dev/null
++++ b/rtthread/applications/object_dictionary.c
+@@ -0,0 +1,42 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include "object_dictionary.h"
++#include "esc_coe.h"
++#include <string.h>
++#include <assert.h>
++
++void *od_data(uint16_t index, uint8_t subindex, size_t size)
++{
++    for (const _objectlist *obj = SDOobjects; obj->index != 0xffff; ++obj) {
++        if (obj->index != index) continue;
++        for (unsigned i = 0; i <= obj->maxsub; ++i) {
++            const _objd *entry = &obj->objdesc[i];
++            if (entry->subindex == subindex && (entry->bitlength + 7u) / 8u == size)
++                return entry->data;
++        }
++    }
++    return NULL;
++}
++
++uint32_t od_get(uint16_t index, uint8_t subindex)
++{
++    for (size_t size = 1; size <= 4; size *= 2) {
++        const uint8_t *data = od_data(index, subindex, size);
++        if (!data) continue;
++        uint32_t value = 0;
++        for (size_t i = 0; i < size; ++i) value |= (uint32_t)data[i] << (8 * i);
++        return value;
++    }
++    assert(0);
++    return 0;
++}
++
++void od_set(uint16_t index, uint8_t subindex, uint32_t value)
++{
++    for (size_t size = 1; size <= 4; size *= 2) {
++        uint8_t *data = od_data(index, subindex, size);
++        if (!data) continue;
++        for (size_t i = 0; i < size; ++i) data[i] = value >> (8 * i);
++        return;
++    }
++    assert(0);
++}
+diff --git a/rtthread/applications/object_dictionary.h b/rtthread/applications/object_dictionary.h
+new file mode 100644
+index 0000000..ac3d568
+--- /dev/null
++++ b/rtthread/applications/object_dictionary.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#pragma once
++#include <stdint.h>
++#include <stddef.h>
++
++void *od_data(uint16_t index, uint8_t subindex, size_t size);
++uint32_t od_get(uint16_t index, uint8_t subindex);
++void od_set(uint16_t index, uint8_t subindex, uint32_t value);
+diff --git a/rtthread/applications/pdo.c b/rtthread/applications/pdo.c
+new file mode 100644
+index 0000000..48f3f89
+--- /dev/null
++++ b/rtthread/applications/pdo.c
+@@ -0,0 +1,44 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include "object_dictionary.h"
++#include "pdo.h"
++#include "esc.h"
++#include <assert.h>
++#include <string.h>
++
++_Static_assert(htoes(0x1234) == 0x1234 && htoel(0x12345678) == 0x12345678,
++               "HPM6E80 SOES must use little-endian conversions");
++#if !defined(EC_LITTLE_ENDIAN) || defined(EC_BIG_ENDIAN)
++#error "HPM6E80 SOES must use little-endian bitfields"
++#endif
++
++/* SOES's numeric bit-slicer does not copy STRING(4). Keep all payload fields
++ * as bytes, including bytes 60..63, without changing the existing ESI types. */
++void gateway_pdo_copy(uint8_t *buffer, uint16_t first_index, bool to_od)
++{
++    static const unsigned sizes[] = {2, 2, 1, 1, 2, 30, 30, 4};
++    unsigned offset = 0;
++    for (unsigned ch = 0; ch < 4; ++ch) {
++        for (unsigned sub = 1; sub <= 8; ++sub) {
++            void *data = od_data(first_index + ch * 16, sub, sizes[sub - 1]);
++            assert(data);
++            if (to_od) memcpy(data, buffer + offset, sizes[sub - 1]);
++            else memcpy(buffer + offset, data, sizes[sub - 1]);
++            offset += sizes[sub - 1];
++        }
++    }
++    assert(offset == 288);
++}
++
++void gateway_rxpdo(void)
++{
++    uint8_t buffer[MAX_RXPDO_SIZE] CC_ALIGNED(8);
++    ESC_read(ESC_SM2_sma, buffer, sizeof(buffer));
++    gateway_pdo_copy(buffer, 0x7000, true);
++}
++
++void gateway_txpdo(void)
++{
++    uint8_t buffer[MAX_TXPDO_SIZE] CC_ALIGNED(8);
++    gateway_pdo_copy(buffer, 0x6000, false);
++    ESC_write(ESC_SM3_sma, buffer, sizeof(buffer));
++}
+diff --git a/rtthread/applications/pdo.h b/rtthread/applications/pdo.h
+new file mode 100644
+index 0000000..6314ff7
+--- /dev/null
++++ b/rtthread/applications/pdo.h
+@@ -0,0 +1,7 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#pragma once
++#include <stdbool.h>
++#include <stdint.h>
++void gateway_pdo_copy(uint8_t *buffer, uint16_t first_index, bool to_od);
++void gateway_rxpdo(void);
++void gateway_txpdo(void);
+diff --git a/rtthread/applications/sync_guard.h b/rtthread/applications/sync_guard.h
+new file mode 100644
+index 0000000..25c5cac
+--- /dev/null
++++ b/rtthread/applications/sync_guard.h
+@@ -0,0 +1,42 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#pragma once
++#include <stdbool.h>
++#include <stdint.h>
++
++static inline uint32_t sync0_cycle_us(uint8_t activation, uint32_t ns)
++{
++    /* Cyclic unit + SYNC0 only; no SYNC1, auto-activation or sub-us cycles. */
++    if (activation != 3 || ns < 1000000 || ns > 10000000 || ns % 1000)
++        return 0;
++    return ns / 1000;
++}
++
++struct sync_guard {
++    uint32_t sequence;
++    uint32_t last_us;
++    int balance;
++    bool active;
++};
++
++/* Unsigned subtraction tolerates the 32-bit microsecond and sequence wraps. */
++static inline bool sync_guard_update(struct sync_guard *guard, uint32_t now,
++    uint32_t sequence, uint32_t pulse_us, uint32_t cycle_us, bool output, bool op)
++{
++    if (!op) {
++        *guard = (struct sync_guard){sequence, now, 0, false};
++        return true;
++    }
++    if (!guard->active) {
++        guard->active = true;
++        guard->last_us = now;
++    }
++    uint32_t pulses = sequence - guard->sequence;
++    guard->sequence = sequence;
++    if (pulses > 1) return false;
++    if (pulses) {
++        if (now - pulse_us >= cycle_us) return false;
++        guard->last_us = pulse_us;
++        guard->balance += output ? 0 : -1;
++    }
++    return now - guard->last_us < 3 * cycle_us && guard->balance >= -2;
++}
+diff --git a/rtthread/check_soes.c b/rtthread/check_soes.c
+new file mode 100644
+index 0000000..1f1217e
+--- /dev/null
++++ b/rtthread/check_soes.c
+@@ -0,0 +1,56 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include "esc.h"
++#include "esc_coe.h"
++#include "object_dictionary.h"
++#include "pdo.h"
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++
++_ESCvar ESCvar;
++
++int main(void)
++{
++    assert(od_get(0x1018, 1) == 0x11bc);
++    assert(od_get(0x1c12, 1) == 0x1600);
++    assert(od_get(0x1c13, 1) == 0x1a00);
++    for (unsigned index = 0x1c32; index <= 0x1c33; ++index) {
++        assert(od_get(index, 1) == 0);
++        assert(od_get(index, 4) == (EXPECT_DC_SYNC0 ? 5 : 1));
++        assert(od_get(index, 5) == 1000000);
++    }
++    for (unsigned sub = 1; sub <= 4; ++sub) assert(od_get(0x1c00, sub) == sub);
++    for (unsigned ch = 0; ch < 4; ++ch) {
++        assert(od_get(0x8000 + ch * 16, 1) == 0);
++        assert(od_get(0x8000 + ch * 16, 3) == 2000000);
++        assert(od_get(0x8000 + ch * 16, 4) == 8000000);
++    }
++    _SMmap mappings[32];
++    int count;
++    assert(sizeOfPDO(0x1c12, &count, mappings, 32) == 288 && count == 32);
++    for (unsigned i = 0; i < 32; ++i) assert(mappings[i].obj != NULL);
++    assert(sizeOfPDO(0x1c13, &count, mappings, 32) == 288 && count == 32);
++
++    uint8_t output[288] CC_ALIGNED(8), input[288] CC_ALIGNED(8);
++    for (unsigned i = 0; i < sizeof(output); ++i) output[i] = (i * 37 + 11) & 0xff;
++    gateway_pdo_copy(output, 0x7000, true);
++    for (unsigned ch = 0; ch < 4; ++ch) {
++        unsigned idx = 0x7000 + ch * 16;
++        assert(od_get(idx, 1) == (output[ch * 72] | (output[ch * 72 + 1] << 8)));
++        assert(memcmp(od_data(idx, 6, 30), output + ch * 72 + 8, 30) == 0);
++        assert(memcmp(od_data(idx, 7, 30), output + ch * 72 + 38, 30) == 0);
++        assert(memcmp(od_data(idx, 8, 4), output + ch * 72 + 68, 4) == 0);
++    }
++    memset(input, 0, sizeof(input));
++    gateway_pdo_copy(input, 0x7000, false);
++    assert(memcmp(input, output, sizeof(input)) == 0);
++    gateway_pdo_copy(output, 0x6000, true);
++    memset(input, 0, sizeof(input));
++    gateway_pdo_copy(input, 0x6000, false);
++    assert(memcmp(input, output, sizeof(input)) == 0);
++    /* Exercise sparse sub-index lookup with ASan enabled. */
++    assert(od_data(0x1c32, 0xff, 2) == NULL);
++    assert(od_data(0xffff, 0, 1) == NULL);
++    puts("SOES dictionary and four-channel 64-byte PDO payload checks passed");
++    return 0;
++}
+diff --git a/rtthread/check_sync.c b/rtthread/check_sync.c
+new file mode 100644
+index 0000000..1981606
+--- /dev/null
++++ b/rtthread/check_sync.c
+@@ -0,0 +1,42 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include "sync_guard.h"
++#include <assert.h>
++#include <stdio.h>
++
++int main(void)
++{
++    assert(sync0_cycle_us(3, 1000000) == 1000);
++    assert(sync0_cycle_us(3, 10000000) == 10000);
++    assert(sync0_cycle_us(3, 1001000) == 1001);
++    assert(sync0_cycle_us(3, 999999) == 0);
++    assert(sync0_cycle_us(3, 10000001) == 0);
++    assert(sync0_cycle_us(3, 1000001) == 0);
++    assert(sync0_cycle_us(7, 1000000) == 0);
++    assert(sync0_cycle_us(11, 1000000) == 0);
++    assert(sync0_cycle_us(0, 1000000) == 0);
++    struct sync_guard guard = {0};
++    assert(sync_guard_update(&guard, 100, 10, 0, 1000, false, false));
++    assert(sync_guard_update(&guard, 1200, 11, 1100, 1000, true, true));
++    assert(sync_guard_update(&guard, 2200, 12, 2100, 1000, true, true));
++    /* A delayed owner must not replay two queued cycles. */
++    assert(!sync_guard_update(&guard, 4200, 14, 4100, 1000, true, true));
++    assert(sync_guard_update(&guard, 5000, 14, 4100, 1000, false, false));
++    /* A stale first pulse after SAFEOP is rejected too. */
++    assert(!sync_guard_update(&guard, 7200, 15, 6100, 1000, true, true));
++    assert(sync_guard_update(&guard, 10000, 20, 10000, 1000, false, false));
++    assert(sync_guard_update(&guard, 10000, 20, 10000, 1000, false, true));
++    assert(sync_guard_update(&guard, 12999, 20, 10000, 1000, false, true));
++    assert(!sync_guard_update(&guard, 13000, 20, 10000, 1000, false, true));
++    /* Three SYNC0 cycles without a fresh output PDO force a sync error. */
++    assert(sync_guard_update(&guard, 20000, 30, 20000, 1000, false, false));
++    assert(sync_guard_update(&guard, 21000, 31, 21000, 1000, false, true));
++    assert(sync_guard_update(&guard, 22000, 32, 22000, 1000, false, true));
++    assert(!sync_guard_update(&guard, 23000, 33, 23000, 1000, false, true));
++    /* Both counters can wrap while the gateway stays in OP. */
++    assert(sync_guard_update(&guard, UINT32_MAX - 999, UINT32_MAX,
++                             UINT32_MAX - 999, 1000, false, false));
++    assert(sync_guard_update(&guard, 100, 0, 0, 1000, true, true));
++    assert(sync_guard_update(&guard, 1100, 1, 1000, 1000, true, true));
++    puts("SYNC0 backlog, stale pulse, missing PDO, timeout and wrap checks passed");
++    return 0;
++}
+diff --git a/rtthread/config.h b/rtthread/config.h
+new file mode 100644
+index 0000000..39062b5
+--- /dev/null
++++ b/rtthread/config.h
+@@ -0,0 +1,5 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++/* Compile the SDK MCAN driver. The gateway owns MCAN directly; do not register
++ * the same controller as an RT-Thread CAN device at the same time. */
++#define BSP_USING_MCAN
++#define BSP_USING_ESC
+diff --git a/rtthread/dependencies.json b/rtthread/dependencies.json
+new file mode 100644
+index 0000000..5a74cf9
+--- /dev/null
++++ b/rtthread/dependencies.json
+@@ -0,0 +1,5 @@
++{
++  "rt-thread": {"url": "https://github.com/RT-Thread/rt-thread.git", "revision": "611d7c07d5dd32757ac6d363576e5f0e8b915c3c"},
++  "hpm-sdk": {"url": "https://github.com/hpmicro/rtt-pkg-hpm-sdk.git", "revision": "a9ca04a4664a825fcbc4ae7a22a60aa67daefd6a"},
++  "SOES": {"url": "https://github.com/OpenEtherCATsociety/SOES.git", "revision": "6ef7b9415e936c061ad30626ca00004bdde2ac62"}
++}
+diff --git a/rtthread/port/can_port.c b/rtthread/port/can_port.c
+new file mode 100644
+index 0000000..634cdda
+--- /dev/null
++++ b/rtthread/port/can_port.c
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include "board.h"
++#include "can_port.h"
++
++ATTR_PLACE_AT(".ahb_sram") static uint32_t can4_ram[MCAN_MSG_BUF_SIZE_IN_WORDS];
++
++MCAN_Type *gateway_can_base(unsigned channel)
++{
++    return channel == 0 ? HPM_MCAN4 : NULL;
++}
++
++bool gateway_can_prepare(unsigned channel)
++{
++    MCAN_Type *base = gateway_can_base(channel);
++    if (!base) return false;
++    mcan_msg_buf_attr_t attr = {(uint32_t)can4_ram, sizeof(can4_ram)};
++    return mcan_set_msg_buf_attr(base, &attr) == status_success;
++}
+diff --git a/rtthread/port/can_port.h b/rtthread/port/can_port.h
+new file mode 100644
+index 0000000..1d60f6b
+--- /dev/null
++++ b/rtthread/port/can_port.h
+@@ -0,0 +1,7 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#pragma once
++#include "hpm_mcan_drv.h"
++
++/* Logical channel 0 is the EVK's MCAN4 connector. Custom boards replace this map. */
++MCAN_Type *gateway_can_base(unsigned channel);
++bool gateway_can_prepare(unsigned channel);
+diff --git a/rtthread/port/esc_hw.c b/rtthread/port/esc_hw.c
+new file mode 100644
+index 0000000..9bf816d
+--- /dev/null
++++ b/rtthread/port/esc_hw.c
+@@ -0,0 +1,220 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include "board.h"
++#include "hpm_esc_drv.h"
++#include "hpm_gpio_drv.h"
++#include "esc.h"
++#include "esc_port.h"
++#include <string.h>
++#include <rthw.h>
++#include "hpm_csr_drv.h"
++#include "object_dictionary.h"
++#include "sync_guard.h"
++
++static struct rt_event esc_wakeup;
++static volatile uint32_t sync_sequence, sync_time_us;
++uint32_t hpm_soes_cycle_us;
++
++uint32_t hpm_soes_time_us(void)
++{
++    uint64_t cycles = hpm_csr_get_core_mcycle();
++    return (uint32_t)((cycles / hpm_core_clock) * 1000000ULL +
++                     (cycles % hpm_core_clock) * 1000000ULL / hpm_core_clock);
++}
++
++static void pdi_irq(void)
++{
++    /* Level-triggered PDI stays masked until the owner has serviced the ESC. */
++    intc_m_disable_irq(IRQn_ESC);
++    rt_event_send(&esc_wakeup, 1);
++}
++SDK_DECLARE_EXT_ISR_M(IRQn_ESC, pdi_irq)
++
++static void sync0_irq(void)
++{
++    /* HPM6E requires a dword read at 0x98c to acknowledge SYNC0/1. */
++    (void)*(volatile uint32_t *)(HPM_ESC_BASE + 0x98c);
++    sync_time_us = hpm_soes_time_us();
++    ++sync_sequence;
++    rt_event_send(&esc_wakeup, 1);
++}
++SDK_DECLARE_EXT_ISR_M(IRQn_ESC_SYNC0, sync0_irq)
++
++uint32_t hpm_soes_sync_snapshot(uint32_t *time_us)
++{
++    rt_base_t level = rt_hw_interrupt_disable();
++    uint32_t sequence = sync_sequence;
++    *time_us = sync_time_us;
++    rt_hw_interrupt_enable(level);
++    return sequence;
++}
++
++void hpm_soes_wait(void)
++{
++    intc_m_enable_irq_with_priority(IRQn_ESC, 4);
++    rt_uint32_t received;
++    rt_event_recv(&esc_wakeup, 1, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
++                  rt_tick_from_millisecond(1), &received);
++}
++
++void hpm_soes_irq_enable(uint32_t mask)
++{
++    if (mask & ESCREG_ALEVENT_DC_SYNC0) {
++        /* In DC mode the thread consumes both PDO directions on SYNC0. */
++        mask &= ~(ESCREG_ALEVENT_DC_SYNC0 | ESCREG_ALEVENT_SM2 | ESCREG_ALEVENT_SM3);
++        ESC_ALeventmaskwrite(ESC_ALeventmaskread() &
++                            ~(ESCREG_ALEVENT_SM2 | ESCREG_ALEVENT_SM3));
++        (void)*(volatile uint32_t *)(HPM_ESC_BASE + 0x98c);
++        esc_enable_irq(HPM_ESC, esc_sync0_irq_mask);
++        intc_m_enable_irq_with_priority(IRQn_ESC_SYNC0, 3);
++    } else if (mask & (ESCREG_ALEVENT_SM2 | ESCREG_ALEVENT_SM3)) {
++        hpm_soes_irq_disable(ESCREG_ALEVENT_DC_SYNC0);
++    }
++    ESC_ALeventmaskwrite(ESC_ALeventmaskread() | mask);
++}
++
++void hpm_soes_irq_disable(uint32_t mask)
++{
++    if (mask & ESCREG_ALEVENT_DC_SYNC0) {
++        intc_m_disable_irq(IRQn_ESC_SYNC0);
++        esc_disable_irq(HPM_ESC, esc_sync0_irq_mask);
++        ESCvar.dcsync = 0;
++        hpm_soes_cycle_us = 0;
++        od_set(0x1c32, 1, 0);
++        od_set(0x1c33, 1, 0);
++        od_set(0x1c32, 2, 0);
++        od_set(0x1c33, 2, 0);
++    }
++    ESC_ALeventmaskwrite(ESC_ALeventmaskread() & ~mask);
++}
++
++uint16_t hpm_soes_check_dc(void)
++{
++    hpm_soes_irq_disable(ESCREG_ALEVENT_DC_SYNC0 | ESCREG_ALEVENT_SM2 | ESCREG_ALEVENT_SM3);
++#ifdef ETHERCANFD_DC_SYNC0
++    uint8_t activation;
++    ESC_read(ESCREG_SYNC_ACT, &activation, sizeof(activation));
++    if (activation != (ESCREG_SYNC_ACT_ACTIVATED | ESCREG_SYNC_SYNC0_EN))
++        return ALERR_DCINVALIDSYNCCFG;
++    uint32_t ns;
++    ESC_read(ESCREG_SYNC0_CYCLE_TIME, &ns, sizeof(ns));
++    ns = etohl(ns);
++    uint32_t cycle_us = sync0_cycle_us(activation, ns);
++    if (!cycle_us)
++        return ALERR_DCSYNC0CYCLETIME;
++    hpm_soes_cycle_us = cycle_us;
++    ESCvar.dcsync = 1;
++    od_set(0x1c32, 1, 2);
++    od_set(0x1c33, 1, 2);
++    od_set(0x1c32, 2, ns);
++    od_set(0x1c33, 2, ns);
++    return 0;
++#else
++    return ALERR_DCINVALIDSYNCCFG;
++#endif
++}
++
++extern const uint8_t ethercanfd_sii[];
++extern const unsigned ethercanfd_sii_size;
++
++/* Device accesses must not be optimized into ordinary RAM memcpy calls. */
++void ESC_read(uint16_t address, void *buf, uint16_t len)
++{
++    uint8_t *dst = buf;
++    /* HPM6E ESC bulk reads require aligned 32-bit bus transactions. */
++    while (len) {
++        unsigned offset = address & 3u;
++        uint32_t word = *(volatile const uint32_t *)(HPM_ESC_BASE + (address & ~3u));
++        unsigned count = 4u - offset;
++        if (count > len) count = len;
++        memcpy(dst, (uint8_t *)&word + offset, count);
++        dst += count;
++        address += count;
++        len -= count;
++    }
++    ESCvar.ALevent = HPM_ESC->AL_EVT_REQ;
++}
++
++void ESC_write(uint16_t address, void *buf, uint16_t len)
++{
++    volatile uint8_t *dst = (volatile uint8_t *)(HPM_ESC_BASE + address);
++    const uint8_t *src = buf;
++    while (len--) *dst++ = *src++;
++    __asm__ volatile("fence iorw, iorw" ::: "memory");
++    ESCvar.ALevent = HPM_ESC->AL_EVT_REQ;
++}
++
++void hpm_soes_eeprom(void)
++{
++    if (!(HPM_ESC->EEPROM_CTRL_STAT & ESC_EEPROM_CTRL_STAT_BUSY_MASK)) return;
++    uint8_t cmd = esc_get_eeprom_cmd(HPM_ESC);
++    uint32_t value = 0;
++    bool error = false;
++    if (cmd == esc_eeprom_reload_cmd) {
++        uint8_t config = ethercanfd_sii[1];
++        value = ethercanfd_sii[8] | ((uint32_t)ethercanfd_sii[9] << 8);
++        value |= ESC_ESC_CFG_ELDAP_GET(config) << 16;
++        value |= ESC_ESC_CFG_ELP0_GET(config) << 17;
++        value |= ESC_ESC_CFG_ELP1_GET(config) << 18;
++        value |= ESC_ESC_CFG_ELP2_GET(config) << 19;
++        value |= ESC_ESC_CFG_ELP3_GET(config) << 20;
++        esc_write_eeprom_data(HPM_ESC, value);
++    } else if (cmd == esc_eeprom_read_cmd) {
++        uint32_t word = esc_get_eeprom_word_address(HPM_ESC);
++        if (word > (ethercanfd_sii_size - 4u) / 2u) error = true;
++        else {
++            memcpy(&value, &ethercanfd_sii[word * 2u], sizeof(value));
++            esc_write_eeprom_data(HPM_ESC, value);
++        }
++    } else if (cmd != esc_eeprom_idle_cmd) {
++        /* The build-generated SII is immutable; never acknowledge lost writes. */
++        error = true;
++    }
++    esc_eeprom_emulation_ack(HPM_ESC, cmd, error, false);
++}
++
++rt_err_t hpm_soes_init(void)
++{
++    intc_m_disable_irq(IRQn_ESC);
++    intc_m_disable_irq(IRQn_ESC_SYNC0);
++    intc_m_disable_irq(IRQn_ESC_SYNC1);
++    if (rt_event_init(&esc_wakeup, "esc", RT_IPC_FLAG_PRIO) != RT_EOK)
++        return -RT_ERROR;
++    board_init_ethercat(HPM_ESC);
++    esc_disable_irq(HPM_ESC, esc_irq_mask_all);
++    esc_eeprom_clock_config_t config = {
++        .core_clock_en = true, .phy_refclk_en = true,
++        .eeprom_emulation = true, .eeprom_size_over_16kbit = false
++    };
++    esc_config_eeprom_and_clock(HPM_ESC, &config);
++    /* PDI registers stall the bus until the ESC core clock is enabled. */
++    HPM_ESC->PDI_AL_EVT_MSK = 0;
++    rt_tick_t start = rt_tick_get();
++    while (!(HPM_ESC->ESC_DL_STAT & 1u)) {
++        hpm_soes_eeprom();
++        if (rt_tick_get() - start >= rt_tick_from_millisecond(1000)) return -RT_ETIMEOUT;
++        rt_thread_mdelay(1);
++    }
++    esc_set_phy_offset(HPM_ESC, BOARD_ECAT_PHY_ADDR_OFFSET);
++    esc_config_ctrl_signal_function(HPM_ESC, BOARD_ECAT_NMII_LINK0_CTRL_INDEX,
++        esc_ctrl_signal_func_alt_nmii_link0, BOARD_ECAT_PORT0_LINK_INVERT);
++    esc_config_ctrl_signal_function(HPM_ESC, BOARD_ECAT_NMII_LINK1_CTRL_INDEX,
++        esc_ctrl_signal_func_alt_nmii_link1, BOARD_ECAT_PORT1_LINK_INVERT);
++    esc_config_nmii_link_source(HPM_ESC, true, true, false);
++    rt_thread_mdelay(10);
++    gpio_write_pin(BOARD_ECAT_PHY0_RESET_GPIO, BOARD_ECAT_PHY0_RESET_GPIO_PORT_INDEX,
++                   BOARD_ECAT_PHY0_RESET_PIN_INDEX, !BOARD_ECAT_PHY_RESET_LEVEL);
++    gpio_write_pin(BOARD_ECAT_PHY1_RESET_GPIO, BOARD_ECAT_PHY1_RESET_GPIO_PORT_INDEX,
++                   BOARD_ECAT_PHY1_RESET_PIN_INDEX, !BOARD_ECAT_PHY_RESET_LEVEL);
++    rt_thread_mdelay(100);
++    return RT_EOK;
++}
++
++void ESC_init(const esc_cfg_t *cfg)
++{
++    (void)cfg; /* Hardware is checked before entering SOES's startup wait. */
++}
++
++void ESC_reset(void)
++{
++    esc_pdi_reset(HPM_ESC);
++}
+diff --git a/rtthread/port/esc_port.h b/rtthread/port/esc_port.h
+new file mode 100644
+index 0000000..8cf2bc0
+--- /dev/null
++++ b/rtthread/port/esc_port.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#pragma once
++#include <rtthread.h>
++rt_err_t hpm_soes_init(void);
++void hpm_soes_eeprom(void);
++void hpm_soes_irq_enable(uint32_t mask);
++void hpm_soes_irq_disable(uint32_t mask);
++void hpm_soes_wait(void);
++uint16_t hpm_soes_check_dc(void);
++uint32_t hpm_soes_time_us(void);
++uint32_t hpm_soes_sync_snapshot(uint32_t *time_us);
++extern uint32_t hpm_soes_cycle_us;
+diff --git a/rtthread/port/gs_usb_irq.c b/rtthread/port/gs_usb_irq.c
+new file mode 100644
+index 0000000..cf06638
+--- /dev/null
++++ b/rtthread/port/gs_usb_irq.c
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#include <rtthread.h>
++#ifdef ETHERCANFD_USB
++#include <rthw.h>
++#include "board.h"
++#include "rtt_board.h"
++#include "can_irq_dispatch.h"
++
++static can_irq_handler_t can_handler;
++static void ethercanfd_mcan4_irq(void)
++{
++    if (can_handler) can_handler(0);
++}
++SDK_DECLARE_EXT_ISR_M(IRQn_MCAN4, ethercanfd_mcan4_irq)
++
++void can_irq_set_handler(can_irq_handler_t handler)
++{
++    rt_base_t level = rt_hw_interrupt_disable();
++    can_handler = handler;
++    rt_hw_interrupt_enable(level);
++}
++
++extern void hpm_isr_usb0(void);
++static void ethercanfd_usb_irq(void)
++{
++    hpm_isr_usb0();
++}
++SDK_DECLARE_EXT_ISR_M(IRQn_USB0, ethercanfd_usb_irq)
++
++void hpm_usb_isr_enable(uint32_t base)
++{
++    RT_ASSERT(base == HPM_USB0_BASE);
++    intc_m_enable_irq(IRQn_USB0);
++}
++#endif
+diff --git a/rtthread/port/gs_usb_port.h b/rtthread/port/gs_usb_port.h
+new file mode 100644
+index 0000000..b32ef06
+--- /dev/null
++++ b/rtthread/port/gs_usb_port.h
+@@ -0,0 +1,46 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++#ifndef ETHERCANFD_GS_USB_PORT_H
++#define ETHERCANFD_GS_USB_PORT_H
++#include <rtthread.h>
++#include "can_port.h"
++#include "rtt_board.h"
++#include "hpm_gpio_drv.h"
++
++static inline bool gs_usb_boot_selected(void)
++{
++#ifdef ETHERCANFD_BOOT_USB
++    return true;
++#elif defined(ETHERCANFD_BOOT_AUTO)
++    board_init_gpio_pins();
++    gpio_set_pin_input(BOARD_APP_GPIO_CTRL, BOARD_APP_GPIO_INDEX, BOARD_APP_GPIO_PIN);
++    for (unsigned i = 0; i < 20; ++i) {
++        if (gpio_read_pin(BOARD_APP_GPIO_CTRL, BOARD_APP_GPIO_INDEX,
++                          BOARD_APP_GPIO_PIN) != BOARD_BUTTON_PRESSED_VALUE)
++            return false;
++        rt_thread_mdelay(1);
++    }
++    return true;
++#else
++    return false;
++#endif
++}
++
++static inline void board_led_mode_on(void) { app_led_write(APP_LED0, APP_LED_ON); }
++static inline void board_led_mode_off(void) { app_led_write(APP_LED0, APP_LED_OFF); }
++static inline void board_led_usb_off(void) { app_led_write(APP_LED1, APP_LED_OFF); }
++static inline void board_led_usb_toggle(void)
++{
++    static bool state;
++    state = !state;
++    app_led_write(APP_LED1, state ? APP_LED_ON : APP_LED_OFF);
++}
++static inline void board_led_can_on(unsigned ch)
++{
++    if (ch == 0) app_led_write(APP_LED2, APP_LED_ON);
++}
++static inline void board_led_can_off(unsigned ch)
++{
++    if (ch == 0) app_led_write(APP_LED2, APP_LED_OFF);
++}
++void gs_usb_run(void);
++#endif
+diff --git a/scripts/build_rtthread.py b/scripts/build_rtthread.py
+new file mode 100644
+index 0000000..4c7bd64
+--- /dev/null
++++ b/scripts/build_rtthread.py
+@@ -0,0 +1,153 @@
++#!/usr/bin/env python3
++"""Build the HPM6E80 RT-Thread target in an isolated workspace."""
++import argparse
++import json
++import os
++from pathlib import Path
++import shutil
++import struct
++import subprocess
++import sys
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def run(*args, **kwargs):
++    subprocess.run(args, check=True, **kwargs)
++
++
++def check_interrupt_vectors(bsp, toolchain, usb):
++    elf = bsp / 'rtthread.elf'
++    prefix = toolchain.resolve() / 'riscv32-unknown-elf-'
++    symbols = {}
++    for line in subprocess.check_output([str(prefix) + 'nm', str(elf)], text=True).splitlines():
++        fields = line.split()
++        if len(fields) == 3:
++            symbols[fields[2]] = int(fields[0], 16)
++    vectors = bsp / 'irq-vectors.bin'
++    run(str(prefix) + 'objcopy', '--dump-section', f'.vectors={vectors}', str(elf))
++    data = vectors.read_bytes()
++    # HPM6E80 IRQ indices from hpm_interrupt.h; .vectors starts at __vector_table.
++    required = {133: 'ESC', 134: 'SYNC0'}
++    if usb:
++        required.update({94: 'MCAN4', 127: 'USB0'})
++    for irq, name in required.items():
++        handler = symbols[f'default_isr_{irq}']
++        if handler == symbols['default_irq_handler'] or struct.unpack_from('<I', data, irq * 4)[0] != handler:
++            raise RuntimeError(f'{name}: static interrupt vector is not connected')
++    print('HPM6E80 interrupt vectors verified: ' + ', '.join(required.values()))
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--workspace', type=Path, required=True,
++                        help='Dependency and build directory (use test/tmp/)')
++    parser.add_argument('--toolchain', type=Path, required=True,
++                        help='Directory containing riscv32-unknown-elf-gcc')
++    parser.add_argument('--fetch', action='store_true', help='Fetch missing pinned dependencies')
++    parser.add_argument('--usb-sdk', type=Path,
++                        help='HPM SDK checkout containing the pinned CherryUSB middleware')
++    parser.add_argument('--mode', choices=('ethercat', 'usb', 'auto'), default='ethercat')
++    parser.add_argument('--dc-sync0', action='store_true',
++                        help='Enable experimental SYNC0 at 1-10 ms periods')
++    parser.add_argument('-j', type=int, default=8)
++    args = parser.parse_args()
++    if args.mode != 'ethercat' and args.usb_sdk is None:
++        parser.error('--mode usb/auto requires --usb-sdk')
++    if args.dc_sync0 and args.mode == 'usb':
++        parser.error('--dc-sync0 requires ethercat or auto mode')
++    if args.usb_sdk:
++        args.usb_sdk = args.usb_sdk.resolve()
++        revision = subprocess.check_output(
++            ['git', '-C', str(args.usb_sdk), 'rev-parse', 'HEAD'], text=True).strip()
++        if revision != 'ccc5ec467a047f3ea85cd2fa4565e91db7135a38':
++            parser.error('USB middleware requires HPM SDK ccc5ec467a047f3ea85cd2fa4565e91db7135a38')
++        run('git', '-C', str(args.usb_sdk), 'diff', '--quiet', 'HEAD', '--', 'middleware/cherryusb')
++    workspace = args.workspace.resolve()
++    workspace.mkdir(parents=True, exist_ok=True)
++    pins = json.loads((ROOT / 'rtthread/dependencies.json').read_text())
++    for name, pin in pins.items():
++        checkout = workspace / name
++        if not checkout.exists() and args.fetch:
++            run('git', 'init', str(checkout))
++            run('git', '-C', str(checkout), 'remote', 'add', 'origin', pin['url'])
++            run('git', '-C', str(checkout), 'fetch', '--depth', '1', '--filter=blob:none', 'origin', pin['revision'])
++            if name == 'rt-thread':
++                run('git', '-C', str(checkout), 'sparse-checkout', 'set',
++                    'bsp/hpmicro', 'components', 'include', 'libcpu', 'src', 'tools')
++            run('git', '-C', str(checkout), 'checkout', '--detach', 'FETCH_HEAD')
++        if not checkout.exists():
++            parser.error(f'{checkout} missing; supply --fetch')
++        actual = subprocess.check_output(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], text=True).strip()
++        if actual != pin['revision']:
++            parser.error(f'{name}: expected {pin["revision"]}, found {actual}')
++        run('git', '-C', str(checkout), 'diff', '--quiet', 'HEAD', '--')
++
++    rtt = workspace / 'rt-thread'
++    bsp = workspace / 'build-hpm6e80'
++    marker = bsp / '.ethercanfd-workspace'
++    if bsp.exists() and not marker.exists():
++        parser.error(f'refusing to overwrite unowned directory {bsp}')
++    bsp.mkdir(exist_ok=True)
++    marker.touch()
++    shutil.copytree(rtt / 'bsp/hpmicro/hpm6e00evk', bsp, dirs_exist_ok=True,
++                    ignore=shutil.ignore_patterns('applications', '*.md', '.gitignore'))
++    for dest, source in [('libraries', rtt / 'bsp/hpmicro/libraries'),
++                         ('packages/hpm_sdk-v1.13.0', workspace / 'hpm-sdk')]:
++        target = bsp / dest
++        target.parent.mkdir(parents=True, exist_ok=True)
++        if not target.exists():
++            target.symlink_to(source, target_is_directory=True)
++    (bsp / 'packages/SConscript').write_text(
++        "from building import *\nobjs = SConscript('hpm_sdk-v1.13.0/SConscript')\nReturn('objs')\n")
++    if (bsp / 'applications').exists():
++        shutil.rmtree(bsp / 'applications')
++    shutil.copytree(ROOT / 'rtthread/applications', bsp / 'applications')
++    shutil.copytree(ROOT / 'rtthread/port', bsp / 'applications/port', dirs_exist_ok=True)
++    if args.usb_sdk:
++        shared = bsp / 'applications/usb'
++        shared.mkdir()
++        for name in ('gs_usb.c', 'gs_usb_time.h', 'usb_config.h', 'can_irq_dispatch.h'):
++            shutil.copy2(ROOT / 'src' / name, shared / name)
++        (shared / 'version.h').write_text('#define FIRMWARE_VERSION "1.2.0-rtt"\n')
++        shutil.copytree(args.usb_sdk / 'middleware/cherryusb',
++                        bsp / 'applications/cherryusb',
++                        ignore=shutil.ignore_patterns('*.o', '*.md'))
++    config = (bsp / 'rtconfig.h').read_text()
++    config = config.replace('#define RT_MAIN_THREAD_STACK_SIZE 2048', '#define RT_MAIN_THREAD_STACK_SIZE 8192')
++    config = config.replace('#endif', (ROOT / 'rtthread/config.h').read_text() + '\n#endif')
++    if args.usb_sdk:
++        config += ('\n#define ETHERCANFD_USB\n#define ETHERCANFD_RTTHREAD\n'
++                   '#define BSP_USING_USB\n#define BSP_USING_USB_DEVICE\n'
++                   '#define GS_USB_CAN_CHANNEL_COUNT 1U\n')
++    if args.mode == 'usb':
++        config += '#define ETHERCANFD_BOOT_USB\n'
++    elif args.mode == 'auto':
++        config += '#define ETHERCANFD_BOOT_AUTO\n'
++    if args.dc_sync0:
++        config += '#define ETHERCANFD_DC_SYNC0\n'
++    (bsp / 'rtconfig.h').write_text(config)
++    generated = bsp / 'applications/generated'
++    run(sys.executable, str(ROOT / 'scripts/generate_soes.py'),
++        str(ROOT / 'SSC/EtherCANFD.xml'), str(generated),
++        *(['--dc-sync0'] if args.dc_sync0 else []))
++    environment = dict(os.environ, RTT_ROOT=str(rtt),
++                       RTT_RISCV_TOOLCHAIN=str(args.toolchain.resolve()),
++                       SOES_ROOT=str(workspace / 'SOES'))
++    if args.usb_sdk:
++        environment['CHERRYUSB_ROOT'] = str(bsp / 'applications/cherryusb')
++        environment['HPM_SDK_ROOT'] = str(workspace / 'hpm-sdk')
++    compiler_tmp = workspace / 'compiler-tmp'
++    compiler_tmp.mkdir(exist_ok=True)
++    environment['TMPDIR'] = str(compiler_tmp)
++    sconstruct = bsp / 'SConstruct'
++    sconstruct.write_text(sconstruct.read_text().replace(
++        "env.PrependENVPath('PATH', rtconfig.EXEC_PATH)",
++        "env.PrependENVPath('PATH', rtconfig.EXEC_PATH)\n"
++        "env['ENV']['TMPDIR'] = os.environ['TMPDIR']"))
++    run('scons', f'-j{args.j}', cwd=bsp, env=environment)
++    check_interrupt_vectors(bsp, args.toolchain, args.usb_sdk is not None)
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/scripts/check_soes.py b/scripts/check_soes.py
+new file mode 100644
+index 0000000..2f6d8e9
+--- /dev/null
++++ b/scripts/check_soes.py
+@@ -0,0 +1,78 @@
++#!/usr/bin/env python3
++"""Validate generated ESI/SII and run native PDO tests against pinned SOES."""
++import argparse
++import os
++from pathlib import Path
++import struct
++import subprocess
++import sys
++import xml.etree.ElementTree as ET
++sys.dont_write_bytecode = True
++from generate_soes import generate
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--soes', type=Path, required=True)
++    parser.add_argument('--output', type=Path, required=True, help='Test artifacts under test/tmp/')
++    parser.add_argument('--dc-sync0', action='store_true')
++    args = parser.parse_args()
++    output = args.output.resolve()
++    generate(ROOT / 'SSC/EtherCANFD.xml', output, args.dc_sync0)
++    environment = dict(os.environ, TMPDIR=str(output))
++    sii = (output / 'ethercanfd-sii.bin').read_bytes()
++    assert len(sii) == 2048
++    crc = 0xff
++    for value in sii[:14]:
++        for bit in range(7, -1, -1):
++            carry = ((crc >> 7) ^ (value >> bit)) & 1
++            crc = ((crc << 1) ^ (7 if carry else 0)) & 0xff
++    assert sii[14:16] == bytes([crc, 0])
++    assert struct.unpack_from('<III', sii, 16) == (0x11bc, 1, 1)
++    assert struct.unpack_from('<HHHH', sii, 0x30) == (0x1000, 128, 0x1080, 128)
++    categories = {}
++    offset = 128
++    while struct.unpack_from('<H', sii, offset)[0] != 0xffff:
++        kind, words = struct.unpack_from('<HH', sii, offset)
++        offset += 4
++        categories[kind] = sii[offset:offset + words * 2]
++        offset += words * 2
++    assert len(categories[41]) == 32
++    for kind, index, sm in [(50, 0x1a00, 3), (51, 0x1600, 2)]:
++        assert struct.unpack_from('<HBB', categories[kind]) == (index, 32, sm)
++        assert sum(categories[kind][i + 5] for i in range(8, len(categories[kind]), 8)) == 288 * 8
++    generated = ET.parse(output / 'EtherCANFD.xml')
++    if args.dc_sync0:
++        modes = generated.findall('.//Device/Dc/OpMode')
++        assert [m.findtext('AssignActivate') for m in modes] == ['#x0', '#x300']
++        assert modes[1].find('CycleTimeSync1') is None
++    else:
++        assert generated.find('.//Device/Dc') is None
++    assert generated.find('.//Device/Mailbox/FoE') is None
++    soes = args.soes.resolve() / 'soes'
++    app = ROOT / 'rtthread/applications'
++    binary = output / 'check_soes'
++    command = ['gcc', '-std=gnu11', '-g', '-O1', '-fsanitize=address,undefined',
++               '-DEXPECT_DC_SYNC0=' + str(int(args.dc_sync0)),
++               '-fno-omit-frame-pointer', '-fno-pie', '-no-pie',
++               '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
++               '-I' + str(soes), '-I' + str(soes / 'include/sys/gcc'),
++               '-I' + str(output), '-I' + str(app),
++               str(ROOT / 'rtthread/check_soes.c'), str(app / 'object_dictionary.c'),
++               str(app / 'pdo.c'), str(output / 'objectlist.c'),
++               str(soes / 'esc_coe.c'), '-o', str(binary)]
++    subprocess.run(command, check=True, env=environment)
++    subprocess.run([str(binary)], check=True)
++    sync_binary = output / 'check_sync'
++    subprocess.run(['gcc', '-std=c11', '-Wall', '-Wextra', '-Werror',
++                    '-fsanitize=address,undefined', '-fno-pie', '-no-pie',
++                    '-I' + str(app), str(ROOT / 'rtthread/check_sync.c'),
++                    '-o', str(sync_binary)], check=True, env=environment)
++    subprocess.run([str(sync_binary)], check=True)
++    print('SII CRC, identity, mailbox, SM and PDO categories passed')
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/scripts/generate_soes.py b/scripts/generate_soes.py
+new file mode 100644
+index 0000000..6179c7b
+--- /dev/null
++++ b/scripts/generate_soes.py
+@@ -0,0 +1,237 @@
++#!/usr/bin/env python3
++"""Generate SOES object storage, PDO constants and read-only SII from the ESI."""
++import argparse
++import json
++from pathlib import Path
++import struct
++import xml.etree.ElementTree as ET
++
++
++def number(value):
++    return int(value[2:], 16) if value.lower().startswith('#x') else int(value, 0)
++
++
++def generate(source, output, dc_sync0=False):
++    tree = ET.parse(source)
++    root = tree.getroot()
++    device = root.find('./Descriptions/Devices/Device')
++    dictionary = device.find('./Profile/Dictionary')
++    types = {node.findtext('Name'): node for node in dictionary.findall('./DataTypes/DataType')}
++    dtype = {'BOOL': 'BOOLEAN', 'USINT': 'UNSIGNED8', 'UINT': 'UNSIGNED16',
++             'UDINT': 'UNSIGNED32', 'ULINT': 'UNSIGNED64'}
++    declarations = ['/* Generated from ESI; do not edit. */', '#include "esc_coe.h"',
++                    '#include "object_dictionary.h"']
++    objects = []
++    fields = {}
++    for obj in dictionary.findall('./Objects/Object'):
++        index = number(obj.findtext('Index'))
++        type_name = obj.findtext('Type')
++        datatype = types.get(type_name)
++        items = [] if datatype is None else datatype.findall('SubItem')
++        defaults = {item.findtext('Name'): item.findtext('Info/DefaultData', '')
++                    for item in obj.findall('Info/SubItem')}
++        entries = []
++        is_array = False
++        if not items:
++            entries.append((0, obj, obj.findtext('Info/DefaultData', '')))
++        for item in items:
++            nested = types.get(item.findtext('Type'))
++            if nested is not None and nested.find('ArrayInfo') is not None:
++                is_array = True
++                count = number(nested.findtext('ArrayInfo/Elements'))
++                start = number(nested.findtext('ArrayInfo/LBound'))
++                bits = number(nested.findtext('BitSize')) // count
++                raw = bytes.fromhex(defaults.get(item.findtext('Name'), ''))
++                for offset in range(count):
++                    element = ET.fromstring(ET.tostring(item))
++                    element.find('Type').text = nested.findtext('BaseType')
++                    element.find('BitSize').text = str(bits)
++                    name = f'SubIndex {start + offset:03d}'
++                    element.find('Name').text = name
++                    default = defaults.get(name, raw[offset * (bits // 8):(offset + 1) * (bits // 8)].hex())
++                    entries.append((start + offset, element, default))
++            else:
++                entries.append((number(item.findtext('SubIdx')), item,
++                                defaults.get(item.findtext('Name'), '')))
++        descriptors = []
++        for sub, item, default in entries:
++            bits = number(item.findtext('BitSize'))
++            size = (bits + 7) // 8
++            raw = bytes.fromhex(default)
++            if len(raw) > size:
++                raise ValueError(f'{index:04x}:{sub}: default exceeds size')
++            raw = raw.ljust(size, b'\0')
++            if index in (0x1c32, 0x1c33) and sub in (1, 4, 5):
++                value = {1: 0, 4: 5 if dc_sync0 else 1, 5: 1000000}[sub]
++                raw = value.to_bytes(size, 'little')
++                for entry in obj.findall('Info/SubItem'):
++                    if entry.findtext('Name') == item.findtext('Name'):
++                        value = entry.find('Info/DefaultData')
++                        if value is not None:
++                            value.text = raw.hex()
++            type_name = item.findtext('Type')
++            ctype = 'VISIBLE_STRING' if type_name.startswith('STRING(') else dtype[type_name]
++            access = item.findtext('Flags/Access', 'ro')
++            if index in (0x1c32, 0x1c33) and sub == 1:
++                # The current mode follows ESC DC registers, not an SDO selector.
++                item.find('Flags/Access').text = 'ro'
++                item.find('Flags/Access').attrib.pop('WriteRestrictions', None)
++                access = 'ro'
++            attr = 'ATYPE_RO' if access == 'ro' else 'ATYPE_RW'
++            access_node = item.find('Flags/Access')
++            if access_node is not None and access_node.get('WriteRestrictions') == 'PreOP':
++                attr = 'ATYPE_RWpre'
++            mapping = item.findtext('Flags/PdoMapping', '')
++            if 'r' in mapping:
++                attr += ' | ATYPE_RXPDO'
++            if 't' in mapping:
++                attr += ' | ATYPE_TXPDO'
++            symbol = f'od_{index:04x}_{sub:02x}'
++            # Native integer alignment is required by SOES expedited SDO accesses.
++            declarations.append(f'static uint8_t {symbol}[{max(size, 1)}] CC_ALIGNED(8) = {{' +
++                                ', '.join(f'0x{x:02x}' for x in raw) + '};')
++            descriptors.append(f'    {{{sub}, DTYPE_{ctype}, {bits}, {attr}, '
++                               f'{json.dumps(item.findtext("Name"))}, {int.from_bytes(raw[:4], "little")}, {symbol}}},')
++            fields[index, sub] = (bits, raw)
++        declarations += [f'static const _objd obj_{index:04x}[] = {{', *descriptors, '};']
++        kind = 'OTYPE_ARRAY' if is_array else ('OTYPE_RECORD' if items else 'OTYPE_VAR')
++        objects.append((index, f'    {{0x{index:04x}, {kind}, {len(entries) - 1}, 0, '
++                               f'{json.dumps(obj.findtext("Name"))}, obj_{index:04x}}},'))
++    declarations += ['const _objectlist SDOobjects[] = {',
++                     *(line for _, line in sorted(objects)),
++                     '    {0xffff, 0xff, 0xff, 0xff, NULL, NULL}', '};']
++
++    options = ['/* Generated from ESI; do not edit. */', '#pragma once',
++               '#define USE_FOE 0', '#define USE_EOE 0', '#define MBXBUFFERS 3']
++    sms = device.findall('Sm')
++    for i, sm in enumerate(sms):
++        address = number(sm.get('StartAddress'))
++        size = number(sm.get('DefaultSize'))
++        control = number(sm.get('ControlByte'))
++        if i < 2:
++            options += [f'#define MBX{i}_sma {address}', f'#define MBX{i}_sml {size}',
++                        f'#define MBX{i}_sme {address + size - 1}', f'#define MBX{i}_smc {control}']
++            options += [f'#define MBX{i}_{key}_b MBX{i}_{key}' for key in ('sma', 'sml', 'sme', 'smc')]
++        else:
++            options += [f'#define SM{i}_sma {address}', f'#define SM{i}_smc {control}',
++                        f'#define SM{i}_act 1']
++    options += ['#define MBXSIZE MBX0_sml', '#define MBXSIZEBOOT MBXSIZE']
++    for tag, sm, direction in [('RxPdo', 2, 'RX'), ('TxPdo', 3, 'TX')]:
++        pdos = device.findall(tag)
++        entries = [entry for pdo in pdos for entry in pdo.findall('Entry')]
++        if len(pdos) != 1 or len(entries) != 32:
++            raise ValueError(f'{tag}: expected one fixed PDO with 32 entries')
++        assignment = 0x1c12 if sm == 2 else 0x1c13
++        if int.from_bytes(fields[assignment, 1][1], 'little') != number(pdos[0].findtext('Index')):
++            raise ValueError(f'{tag}: assignment does not match PDO')
++        total = 0
++        for position, entry in enumerate(entries):
++            key = (number(entry.findtext('Index')), number(entry.findtext('SubIndex')))
++            bits = number(entry.findtext('BitLen'))
++            first = 0x7000 if sm == 2 else 0x6000
++            widths = (16, 16, 8, 8, 16, 240, 240, 32)
++            if key != (first + (position // 8) * 16, position % 8 + 1) or bits != widths[position % 8]:
++                raise ValueError(f'{tag}: frame field order or width changed')
++            mapping = number(pdos[0].findtext('Index'))
++            expected = key[0] << 16 | key[1] << 8 | bits
++            if int.from_bytes(fields[mapping, position + 1][1], 'little') != expected:
++                raise ValueError(f'{tag}: object mapping differs from ESI')
++            if fields[key][0] != bits:
++                raise ValueError(f'PDO entry {key} size mismatch')
++            if bits % 8:
++                raise ValueError('The gateway requires byte-aligned PDO entries')
++            total += bits
++        if total != number(sms[sm].get('DefaultSize')) * 8 or total != 288 * 8:
++            raise ValueError(f'{tag}: expected four 72-byte frames')
++        options += [f'#define MAX_MAPPINGS_SM{sm} {len(entries)}',
++                    f'#define MAX_{direction}PDO_SIZE {total // 8}']
++
++    sii = bytearray(128)
++    config = bytes.fromhex(device.findtext('Eeprom/ConfigData'))
++    sii[:len(config)] = config
++    crc = 0xff
++    for value in sii[:14]:
++        crc ^= value
++        for _ in range(8):
++            crc = ((crc << 1) ^ (0x07 if crc & 0x80 else 0)) & 0xff
++    sii[14] = crc
++    for sub, offset in [(1, 16), (2, 20), (3, 24), (4, 28)]:
++        sii[offset:offset + 4] = fields[0x1018, sub][1]
++    struct.pack_into('<HHHH', sii, 0x30,
++                     number(sms[0].get('StartAddress')), number(sms[0].get('DefaultSize')),
++                     number(sms[1].get('StartAddress')), number(sms[1].get('DefaultSize')))
++    struct.pack_into('<H', sii, 0x38, 0x04)  # CoE only
++    capacity = number(device.findtext('Eeprom/ByteSize'))
++    struct.pack_into('<HH', sii, 0x7c, capacity // 128 - 1, 1)
++
++    def category(kind, data):
++        data = bytes(data)
++        data += b'\0' * (len(data) % 2)
++        sii.extend(struct.pack('<HH', kind, len(data) // 2) + data)
++
++    name = device.findtext('Name').encode('ascii')
++    category(10, bytes([1, len(name)]) + name)
++    general = bytearray(32)
++    general[3] = 1  # Name string
++    general[5] = 0x03  # SDO and SDO information; fixed PDO mapping
++    general[12] = 0x11  # Two MII ports
++    category(30, general)
++    category(40, bytes([1, 2, 3]))  # Outputs, inputs, mailbox status
++    category(41, b''.join(struct.pack('<HHBBBB', number(sm.get('StartAddress')),
++                                      number(sm.get('DefaultSize')), number(sm.get('ControlByte')),
++                                      0, 1, i + 1) for i, sm in enumerate(sms)))
++    # PDO entries use the same indexes, widths and order as the ESI.
++    typecodes = {'BOOL': 1, 'USINT': 5, 'UINT': 6, 'UDINT': 7, 'ULINT': 27}
++    for tag, cat, sm in [('TxPdo', 50, 3), ('RxPdo', 51, 2)]:
++        content = bytearray()
++        for pdo in device.findall(tag):
++            entries = pdo.findall('Entry')
++            content += struct.pack('<HBBBBH', number(pdo.findtext('Index')), len(entries), sm, 0, 0, 0)
++            for entry in entries:
++                datatype = entry.findtext('DataType')
++                code = 9 if datatype.startswith('STRING(') else typecodes[datatype]
++                content += struct.pack('<HBBBBH', number(entry.findtext('Index')),
++                                       number(entry.findtext('SubIndex')), 0, code,
++                                       number(entry.findtext('BitLen')), 0)
++        category(cat, content)
++    sii += b'\xff\xff'
++    if len(sii) > capacity:
++        raise ValueError('SII categories exceed EEPROM capacity')
++    sii.extend(b'\xff' * (capacity - len(sii)))
++    output.mkdir(parents=True, exist_ok=True)
++    (output / 'objectlist.c').write_text('\n'.join(declarations) + '\n')
++    (output / 'ecat_options.h').write_text('\n'.join(options) + '\n')
++    (output / 'sii.c').write_text('#include <stdint.h>\nconst uint8_t ethercanfd_sii[] = {\n' +
++        '\n'.join('    ' + ', '.join(f'0x{x:02x}' for x in sii[i:i + 16]) + ','
++                  for i in range(0, len(sii), 16)) + '\n};\n'
++        f'const unsigned ethercanfd_sii_size = {len(sii)};\n')
++    (output / 'ethercanfd-sii.bin').write_bytes(sii)
++    # Only the explicit DC build advertises the implemented SYNC0 mode.
++    dc = device.find('Dc')
++    if dc is not None:
++        device.remove(dc)
++    if dc_sync0:
++        dc = ET.Element('Dc')
++        device.insert(list(device).index(device.find('Eeprom')), dc)
++        for name, assign in [('FreeRun', '#x0'), ('DC-SYNC0', '#x300')]:
++            mode = ET.SubElement(dc, 'OpMode')
++            ET.SubElement(mode, 'Name').text = name
++            ET.SubElement(mode, 'Desc').text = name
++            ET.SubElement(mode, 'AssignActivate').text = assign
++            if assign != '#x0':
++                ET.SubElement(mode, 'CycleTimeSync0', Factor='1').text = '0'
++    foe = device.find('Mailbox/FoE')
++    if foe is not None:
++        device.find('Mailbox').remove(foe)
++    device.find('Mailbox/CoE').set('CompleteAccess', 'false')
++    tree.write(output / 'EtherCANFD.xml', encoding='utf-8', xml_declaration=True)
++    print(f'Generated {len(objects)} objects, 288-byte Rx/Tx PDOs, {capacity}-byte SII')
++
++
++if __name__ == '__main__':
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('esi', type=Path)
++    parser.add_argument('output', type=Path)
++    parser.add_argument('--dc-sync0', action='store_true')
++    args = parser.parse_args()
++    generate(args.esi, args.output, args.dc_sync0)
+diff --git a/src/gs_usb.c b/src/gs_usb.c
+index af2302b..bc77a27 100644
+--- a/src/gs_usb.c
++++ b/src/gs_usb.c
+@@ -22,6 +22,9 @@
+ #include "hpm_usb_regs.h"
+ #include "usbd_core.h"
+ #include "usb_config.h"
++#ifdef ETHERCANFD_RTTHREAD
++#include "gs_usb_port.h"
++#endif
+ #include "gs_usb_time.h"
+ #include "can_irq_dispatch.h"
+ 
+@@ -71,7 +74,9 @@ static void gs_usb_log(const char *fmt, ...);
+ #define GS_USB_BREQ_COUNTERS       0x10
+ #define GS_USB_COUNTERS_VERSION    2U
+ 
++#ifndef GS_USB_CAN_CHANNEL_COUNT
+ #define GS_USB_CAN_CHANNEL_COUNT 4U
++#endif
+ 
+ /* endpoints */
+ #define GS_USB_EP_OUT 0x02
+@@ -186,8 +191,8 @@ struct gs_device_timestamp {
+ struct gs_device_counters {
+     uint32_t version;
+     uint32_t rx_dropped_total;                        /* 软件 in_queue 满（桥→主机丢弃） */
+-    uint32_t rx_dropped_ch[GS_USB_CAN_CHANNEL_COUNT];
+-    uint32_t rxfifo0_lost[GS_USB_CAN_CHANNEL_COUNT];  /* MCAN 硬件 RX FIFO0 丢失 */
++    uint32_t rx_dropped_ch[4];
++    uint32_t rxfifo0_lost[4];  /* Fixed counters v2 wire ABI. */
+     uint32_t out_drop_total;                          /* 主机下发帧被丢弃（两类合计） */
+     uint32_t out_drop_ring;                           /* TX ring 满 */
+     uint32_t out_drop_invalid;                        /* 主机下发非法 error frame */
+@@ -199,7 +204,7 @@ struct gs_device_counters {
+     uint32_t ep_in_recovery;                          /* Reserved; always zero */
+     uint32_t ep_in_submit_fail;                       /* usbd_ep_start_write 提交失败 */
+     uint32_t busoff_total;                            /* 进入 bus-off 次数 */
+-    uint32_t tx_failed_ch[GS_USB_CAN_CHANNEL_COUNT];  /* 分通道 TX 发送失败 */
++    uint32_t tx_failed_ch[4];
+ } __attribute__((packed));
+ 
+ /* USB EP buffers */
+@@ -384,10 +389,14 @@ extern uint32_t s_mcan_msg_buf3[MCAN_MSG_BUF_SIZE_IN_WORDS];
+ USB_NOCACHE_RAM_SECTION static struct gs_can_channel mcan_channels[4];
+ 
+ static const uint32_t mcan_irqs[GS_USB_CAN_CHANNEL_COUNT] = {
++#ifdef ETHERCANFD_RTTHREAD
++    IRQn_MCAN4
++#else
+     BOARD_CAN0_IRQn,
+     BOARD_CAN1_IRQn,
+     BOARD_CAN2_IRQn,
+     BOARD_CAN3_IRQn
++#endif
+ };
+ USB_NOCACHE_RAM_SECTION static volatile uint32_t channel_generation[GS_USB_CAN_CHANNEL_COUNT];
+ 
+@@ -496,7 +505,7 @@ volatile uint32_t gs_usb_main_loop_count = 0U;
+ volatile uint8_t gs_usb_main_stage = 0U;
+ volatile uint32_t gs_usb_can_irq_count[GS_USB_CAN_CHANNEL_COUNT] = {0U};
+ 
+-static uint16_t s_gs_can_led_ticks[GS_USB_CAN_CHANNEL_COUNT];
++static uint16_t s_gs_can_led_ticks[4];
+ static uint32_t s_gs_mode_led_tick;
+ static uint32_t s_gs_usb_led_tick;
+ static bool s_gs_mode_led_state;
+@@ -528,7 +537,7 @@ enum gs_usb_in_queue_kind {
+     GS_USB_IN_QUEUE_RX,
+ };
+ USB_NOCACHE_RAM_SECTION static struct tx_ring tx_rings[GS_USB_CAN_CHANNEL_COUNT];
+-USB_NOCACHE_RAM_SECTION static struct can_tx_state can_tx_states[GS_USB_CAN_CHANNEL_COUNT];
++USB_NOCACHE_RAM_SECTION static struct can_tx_state can_tx_states[4];
+ static uint8_t tx_marker_seq = 1U;
+ 
+ /* Match the installed SDK validator, which includes Sync_Seg in its SEG1 max. */
+@@ -798,8 +807,8 @@ static void gs_usb_print_rx_diagnostics(uint64_t now_us)
+     uint32_t completed_bytes = ep_in_completed_bytes;
+     uint32_t peak = in_rx_queue_peak;
+     uint32_t interval_peak = in_rx_queue_peak_interval;
+-    uint32_t dropped[GS_USB_CAN_CHANNEL_COUNT];
+-    uint32_t fifo_lost[GS_USB_CAN_CHANNEL_COUNT];
++    uint32_t dropped[4] = {0};
++    uint32_t fifo_lost[4] = {0};
+     uint32_t elapsed_us = last_us == 0U ? 0U : (uint32_t)(now_us - last_us);
+ 
+     for (uint8_t ch = 0U; ch < GS_USB_CAN_CHANNEL_COUNT; ch++) {
+@@ -1734,6 +1743,9 @@ static int gs_usb_set_mode(uint16_t val, const struct gs_device_mode *mode_req)
+         return -1;
+     }
+ #if defined(MCAN_SOC_MSG_BUF_IN_AHB_RAM) && (MCAN_SOC_MSG_BUF_IN_AHB_RAM == 1)
++#ifdef ETHERCANFD_RTTHREAD
++    if (!gateway_can_prepare(val)) return -1;
++#else
+     mcan_msg_buf_attr_t attr;
+     if (val == 0) { mcan_msg_buf_attr_t tmp = { (uint32_t)&s_mcan_msg_buf0, sizeof(s_mcan_msg_buf0) }; attr = tmp; }
+     else if (val == 1) { mcan_msg_buf_attr_t tmp = { (uint32_t)&s_mcan_msg_buf1, sizeof(s_mcan_msg_buf1) }; attr = tmp; }
+@@ -1742,6 +1754,7 @@ static int gs_usb_set_mode(uint16_t val, const struct gs_device_mode *mode_req)
+     if (mcan_set_msg_buf_attr(mcan_channels[val].base, &attr) != status_success) {
+         return -1;
+     }
++#endif
+ #endif
+     mcan_channels[val].mode_flags = mode_req->flags;
+     mcan_bit_timing_param_t saved_can_timing = mcan_channels[val].config.can_timing;
+@@ -1864,7 +1877,7 @@ int gs_usb_vendor_request_handler(uint8_t busid, struct usb_setup_packet *setup,
+             dev_config.reserved1 = 0;
+             dev_config.reserved2 = 0;
+             dev_config.reserved3 = 0;
+-            dev_config.icount = 3; // 4 CAN channels (icount = nchannels - 1)
++            dev_config.icount = GS_USB_CAN_CHANNEL_COUNT - 1U;
+             dev_config.sw_version = 2; // gs_usb driver v2
+             dev_config.hw_version = 1; // custom hardware version
+             memset(dev_config.reserved, 0, sizeof(dev_config.reserved));
+@@ -2098,10 +2111,14 @@ static void gs_usb_init_pool(void)
+     memset(ep_out_generation, 0, sizeof(ep_out_generation));
+     memset(tx_rings, 0, sizeof(tx_rings));
+     memset(can_tx_states, 0, sizeof(can_tx_states));
++#ifdef ETHERCANFD_RTTHREAD
++    mcan_channels[0].base = gateway_can_base(0);
++#else
+     mcan_channels[0].base = HPM_MCAN0;
+     mcan_channels[1].base = HPM_MCAN1;
+     mcan_channels[2].base = HPM_MCAN2;
+     mcan_channels[3].base = HPM_MCAN3;
++#endif
+ }
+ 
+ void gs_usb_run(void)
+@@ -2115,6 +2132,10 @@ void gs_usb_run(void)
+ 
+     // TODO: 考虑是否要有 CAN 的收发器使能引脚配置
+     // 初始化 MCAN0 ~ MCAN3 的 RX/TX 引脚
++#ifdef ETHERCANFD_RTTHREAD
++    board_init_can(mcan_channels[0].base);
++    gs_usb_can_clk = board_init_can_clock(mcan_channels[0].base);
++#else
+     init_mcan0_pins();
+     init_mcan1_pins();
+     init_mcan2_pins();
+@@ -2125,6 +2146,7 @@ void gs_usb_run(void)
+     board_init_can_clock(HPM_MCAN1);
+     board_init_can_clock(HPM_MCAN2);
+     board_init_can_clock(HPM_MCAN3);
++#endif
+     
+     printf("\r\n==========================================\r\n");
+     printf("[GS_USB] gs_usb.c build: %s %s\r\n", __DATE__, __TIME__);
+@@ -2184,10 +2206,8 @@ void gs_usb_run(void)
+ 
+     /* Keep the SDK USB wrapper; CAN callbacks run behind machine IRQ wrappers. */
+     intc_m_enable_irq_with_priority(CONFIG_HPM_USBD_IRQn, 3);
+-    intc_set_irq_priority(BOARD_CAN0_IRQn, 2);
+-    intc_set_irq_priority(BOARD_CAN1_IRQn, 2);
+-    intc_set_irq_priority(BOARD_CAN2_IRQn, 2);
+-    intc_set_irq_priority(BOARD_CAN3_IRQn, 2);
++    for (unsigned ch = 0; ch < GS_USB_CAN_CHANNEL_COUNT; ++ch)
++        intc_set_irq_priority(mcan_irqs[ch], 2);
+ 
+     uint32_t idle_log_tick = 0;
+     uint32_t alive_tick = 0;
+@@ -2201,6 +2221,9 @@ void gs_usb_run(void)
+     gs_usb_watchdog_init();
+ 
+     while (1) {
++#ifdef ETHERCANFD_RTTHREAD
++        rt_thread_mdelay(1);
++#endif
+         uint64_t loop_now_us;
+         static uint64_t heartbeat_last_us = 0U;
+         uint8_t previous_stage = gs_usb_main_stage;
+@@ -2340,7 +2363,7 @@ void gs_usb_run(void)
+         gs_usb_main_stage = 5U; /* CAN RX */
+         // Process CAN RX to USB IN buffer
+         if (1) {
+-            for (int i = 0; i < 4; i++) {
++            for (unsigned i = 0; i < GS_USB_CAN_CHANNEL_COUNT; i++) {
+                 uint32_t channel_level = gs_usb_irq_save();
+                 if (!gs_usb_enumeration_done || !mcan_channels[i].is_open) {
+                     gs_usb_irq_restore(channel_level);

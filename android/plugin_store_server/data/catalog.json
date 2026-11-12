@@ -1,0 +1,1278 @@
+{
+  "name": "robopoly Sensor Hub",
+  "description": "robopoly 传感器/外设二进制仓库",
+  "metadata": {
+    "version": 1,
+    "timestamp": 1794409445.7336578
+  },
+  "modules": [
+    {
+      "id": "adc-48v",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/adc-48v-1.0.0.zip",
+          "size": 1053,
+          "sha256": "2d9e03b57764362cd2e54f727306a25de7092e3b6bb0972792c04b1c6868b5a8",
+          "changelog": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/adc-48v-1.0.0.md"
+        }
+      ],
+      "name": "48V 母线 ADC",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "48V 母线电压监测（XIAO D0）",
+      "categories": [
+        "adc"
+      ],
+      "kind": "adc",
+      "class": "xiao",
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 1053,
+      "target": {
+        "board": "xiao",
+        "transport": "gpio",
+        "interface": "D0"
+      },
+      "installLevel": "D0"
+    },
+    {
+      "id": "hipnuc-imu",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/hipnuc-imu-1.0.0.zip",
+          "size": 1376,
+          "sha256": "e6a4f535d9927eaa4c5b13154b2063b5ec7c480f3cec36cbfae4d05603f23326",
+          "changelog": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/hipnuc-imu-1.0.0.md"
+        }
+      ],
+      "name": "HIPNUC IMU",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "HIPNUC IMU 串口配置（/dev/ttyUSB0, 921600）",
+      "categories": [
+        "imu"
+      ],
+      "kind": "imu",
+      "class": "dev",
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 1376,
+      "target": {
+        "board": "robotd",
+        "transport": "serial",
+        "interface": "/dev/ttyUSB0"
+      },
+      "installLevel": "D1"
+    },
+    {
+      "id": "nst175",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/nst175-1.0.0.zip",
+          "size": 1313,
+          "sha256": "d91c919ce6bcb516dcda188a71e4dd1d6b949c75a44a702279e74ced6de2a796",
+          "changelog": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/nst175-1.0.0.md"
+        }
+      ],
+      "name": "NST175 温度",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "NST175 I2C 温度传感器（0x48）",
+      "categories": [
+        "temp"
+      ],
+      "kind": "temp",
+      "class": "xiao",
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 1313,
+      "target": {
+        "board": "xiao",
+        "transport": "i2c",
+        "interface": "D4/D5",
+        "address": "0x48"
+      },
+      "installLevel": "D0"
+    },
+    {
+      "id": "tws-bms",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/tws-bms-1.0.0.zip",
+          "size": 1486,
+          "sha256": "545f730b4d93236eef8e9d9b3d83deaf56784a52745225b227bd14be02224583",
+          "changelog": "https://github.com/wentywenty/robopoly-dev/releases/download/sensor-v1.1.0/tws-bms-1.0.0.md"
+        }
+      ],
+      "name": "TWS BMS",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "TWS 电池 Modbus-RTU 轮询（UART 115200 8N1）",
+      "categories": [
+        "bms"
+      ],
+      "kind": "bms",
+      "class": "xiao",
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 1486,
+      "target": {
+        "board": "xiao",
+        "transport": "uart",
+        "interface": "D6/D7",
+        "address": "0x01"
+      },
+      "installLevel": "D1"
+    },
+    {
+      "id": "rpo-amp",
+      "name": "RPO AMP",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "AMP 行走/运动策略",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-amp",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-amp@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-amp",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rpo-dance0",
+      "name": "RPO Dance 0",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "舞蹈动作 0",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-dance0",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-dance0@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-dance0",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rpo-dance1",
+      "name": "RPO Dance 1",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "舞蹈动作 1",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-dance1",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-dance1@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-dance1",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rpo-default",
+      "name": "RPO Default",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "默认行走策略",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-default",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-default@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-default",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rpo-getup",
+      "name": "RPO Getup",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "倒地起身策略",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-getup",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-getup@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-getup",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rpo-interrupt",
+      "name": "RPO Interrupt",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "抗扰动/中断恢复策略",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-interrupt",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-interrupt@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-interrupt",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rpo-parkour",
+      "name": "RPO Parkour",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "跑酷策略（实验性）",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-parkour",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-parkour@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-parkour",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rpo-wave",
+      "name": "RPO Wave",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "挥手演示动作",
+      "categories": [
+        "action",
+        "rpo"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rpo",
+        "dof": 23
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rpo-wave",
+      "install": "robopoly action install wentywenty/robopoly-action-rpo-wave@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rpo-wave",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-amp",
+      "name": "RP1 24DOF AMP",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "AMP 行走策略",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-amp",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-amp@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-amp",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-amp-legacy",
+      "name": "RP1 24DOF AMP Legacy",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "AMP 旧版策略",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-amp-legacy",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-amp-legacy@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-amp-legacy",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-default",
+      "name": "RP1 24DOF Default",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "RP1 24 自由度默认行走策略",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-default",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-default@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-default",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-interrupt",
+      "name": "RP1 24DOF Interrupt",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "抗扰动/中断恢复策略",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-interrupt",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-interrupt@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-interrupt",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-rough",
+      "name": "RP1 24DOF Rough",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "复杂地形行走策略",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-rough",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-rough@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-rough",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-soft",
+      "name": "RP1 24DOF Soft",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "柔顺步态策略",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-soft",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-soft@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-soft",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-ufo",
+      "name": "RP1 24DOF UFO",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "高动态 UFO 策略（实验性）",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-ufo",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-ufo@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-ufo",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "rp1-24dof-wave",
+      "name": "RP1 24DOF Wave",
+      "version": "1.0.0",
+      "versionCode": 10000,
+      "author": "wentywenty",
+      "description": "挥手演示动作",
+      "categories": [
+        "action",
+        "rp1_24dof"
+      ],
+      "kind": "action",
+      "class": "huggingface",
+      "license": "Other",
+      "source": "huggingface",
+      "binaryOnly": false,
+      "archive_format": "external",
+      "verified": true,
+      "size": 0,
+      "target": {
+        "board": "robot",
+        "transport": "onnx",
+        "robot": "rp1_24dof",
+        "dof": 24
+      },
+      "installLevel": "D1",
+      "repo": "wentywenty/robopoly-action-rp1-24dof-wave",
+      "install": "robopoly action install wentywenty/robopoly-action-rp1-24dof-wave@v1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "versionCode": 10000,
+          "zipUrl": "https://huggingface.co/wentywenty/robopoly-action-rp1-24dof-wave",
+          "size": 0,
+          "sha256": ""
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-seeeduino_xiao-samd21g18a",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (seeeduino_xiao/samd21g18a)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for seeeduino_xiao/samd21g18a",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 147799,
+      "target": {
+        "board": "seeeduino_xiao/samd21g18a",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-seeeduino_xiao-samd21g18a --board seeeduino_xiao/samd21g18a --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-seeeduino_xiao-samd21g18a-1.1.0.zip",
+          "size": 147799,
+          "sha256": "2989bcc7297abadad99b20e763a2cb0eec8d0bd827824b15671e54169011b19b"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_ble-nrf52840",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_ble/nrf52840)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_ble/nrf52840",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 201805,
+      "target": {
+        "board": "xiao_ble/nrf52840",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_ble-nrf52840 --board xiao_ble/nrf52840 --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_ble-nrf52840-1.1.0.zip",
+          "size": 201805,
+          "sha256": "36ba466423ac03d71bcb7196e1f4ead89e8f8aa2ad4f31cbbad2eeb27c9984d1"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_esp32c3-esp32c3",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_esp32c3/esp32c3)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_esp32c3/esp32c3",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 87218,
+      "target": {
+        "board": "xiao_esp32c3/esp32c3",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_esp32c3-esp32c3 --board xiao_esp32c3/esp32c3 --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_esp32c3-esp32c3-1.1.0.zip",
+          "size": 87218,
+          "sha256": "71e2ad0650040b642207253c351ef91a08d9730b5ec6a3dadfd00e62846019a8"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_esp32c5-esp32c5-hpcore",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_esp32c5/esp32c5/hpcore)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_esp32c5/esp32c5/hpcore",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 94699,
+      "target": {
+        "board": "xiao_esp32c5/esp32c5/hpcore",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_esp32c5-esp32c5-hpcore --board xiao_esp32c5/esp32c5/hpcore --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_esp32c5-esp32c5-hpcore-1.1.0.zip",
+          "size": 94699,
+          "sha256": "c7818f8c981dbbfe1d6b2f1b030539e78f8036679dc0f31fd861e5ed846941f5"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_esp32c6-esp32c6-hpcore",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_esp32c6/esp32c6/hpcore)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_esp32c6/esp32c6/hpcore",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 91755,
+      "target": {
+        "board": "xiao_esp32c6/esp32c6/hpcore",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_esp32c6-esp32c6-hpcore --board xiao_esp32c6/esp32c6/hpcore --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_esp32c6-esp32c6-hpcore-1.1.0.zip",
+          "size": 91755,
+          "sha256": "97ef07af4e5030c5677c7fa5d12d4c7501c06f03e0b9831dada7174fa7b5a8a6"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_esp32s3-esp32s3-procpu",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_esp32s3/esp32s3/procpu)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_esp32s3/esp32s3/procpu",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 90217,
+      "target": {
+        "board": "xiao_esp32s3/esp32s3/procpu",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_esp32s3-esp32s3-procpu --board xiao_esp32s3/esp32s3/procpu --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_esp32s3-esp32s3-procpu-1.1.0.zip",
+          "size": 90217,
+          "sha256": "c1a4596e6dbb7412ba2b04ed7c1730b39eb2e87331aa6230eaddf997cb62cd8b"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_mg24",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_mg24)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_mg24",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 173803,
+      "target": {
+        "board": "xiao_mg24",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_mg24 --board xiao_mg24 --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_mg24-1.1.0.zip",
+          "size": 173803,
+          "sha256": "603435c1e8c6308dfdf01fa8d0870ea041e58e63b297a7542e79b5f74630ce3d"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_nrf54l15-nrf54l15-cpuapp",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_nrf54l15/nrf54l15/cpuapp)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_nrf54l15/nrf54l15/cpuapp",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 181260,
+      "target": {
+        "board": "xiao_nrf54l15/nrf54l15/cpuapp",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_nrf54l15-nrf54l15-cpuapp --board xiao_nrf54l15/nrf54l15/cpuapp --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_nrf54l15-nrf54l15-cpuapp-1.1.0.zip",
+          "size": 181260,
+          "sha256": "a8d715296262fc5d531550089f6377bba3111fd31ecdfb9c5b15f57141226f36"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_nrf54lm20a-nrf54lm20a-cpuapp",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_nrf54lm20a/nrf54lm20a/cpuapp)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_nrf54lm20a/nrf54lm20a/cpuapp",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 197767,
+      "target": {
+        "board": "xiao_nrf54lm20a/nrf54lm20a/cpuapp",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_nrf54lm20a-nrf54lm20a-cpuapp --board xiao_nrf54lm20a/nrf54lm20a/cpuapp --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_nrf54lm20a-nrf54lm20a-cpuapp-1.1.0.zip",
+          "size": 197767,
+          "sha256": "b34001d0c71da791231c94f5e08107db9fb3f7eacf75e5067e0e32cb23f0980e"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_nrf54lm20b-nrf54lm20b-cpuapp",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_nrf54lm20b/nrf54lm20b/cpuapp)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_nrf54lm20b/nrf54lm20b/cpuapp",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 251919,
+      "target": {
+        "board": "xiao_nrf54lm20b/nrf54lm20b/cpuapp",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_nrf54lm20b-nrf54lm20b-cpuapp --board xiao_nrf54lm20b/nrf54lm20b/cpuapp --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_nrf54lm20b-nrf54lm20b-cpuapp-1.1.0.zip",
+          "size": 251919,
+          "sha256": "b131d8b82734ff17192a3ef54b5e84e5a59098966ef378aeb8bd1a57c58bd7d0"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_ra4m1-r7fa4m1ab3cne",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_ra4m1/r7fa4m1ab3cne)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_ra4m1/r7fa4m1ab3cne",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 159113,
+      "target": {
+        "board": "xiao_ra4m1/r7fa4m1ab3cne",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_ra4m1-r7fa4m1ab3cne --board xiao_ra4m1/r7fa4m1ab3cne --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_ra4m1-r7fa4m1ab3cne-1.1.0.zip",
+          "size": 159113,
+          "sha256": "d81ef4d48756fdbed833c6ce0ae3ff99c849165fad3434d8b7197299e5faf0e5"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_rp2040-rp2040",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_rp2040/rp2040)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_rp2040/rp2040",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 61227,
+      "target": {
+        "board": "xiao_rp2040/rp2040",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_rp2040-rp2040 --board xiao_rp2040/rp2040 --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_rp2040-rp2040-1.1.0.zip",
+          "size": 61227,
+          "sha256": "d40502876e777efb228e82bdfa5e220a82efc7474b922f960263eb86a4237c5f"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_rp2350-rp2350a-m33",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_rp2350/rp2350a/m33)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_rp2350/rp2350a/m33",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 157179,
+      "target": {
+        "board": "xiao_rp2350/rp2350a/m33",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_rp2350-rp2350a-m33 --board xiao_rp2350/rp2350a/m33 --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_rp2350-rp2350a-m33-1.1.0.zip",
+          "size": 157179,
+          "sha256": "d2e6cbcb6becbe1faf1ec5f0319850d5c8716de5d8522e14c5cb92ee22fa2190"
+        }
+      ]
+    },
+    {
+      "id": "xiao-gateway-xiao_stm32c5-stm32c5a3xx",
+      "class": "xiao",
+      "kind": "firmware",
+      "name": "XIAO Gateway (xiao_stm32c5/stm32c5a3xx)",
+      "version": "1.1.0",
+      "versionCode": 10100,
+      "author": "wentywenty",
+      "description": "robopoly-xiao gateway firmware for xiao_stm32c5/stm32c5a3xx",
+      "categories": [
+        "firmware",
+        "gateway"
+      ],
+      "license": "Proprietary",
+      "source": "closed",
+      "binaryOnly": true,
+      "archive_format": "zip",
+      "verified": true,
+      "size": 219978,
+      "target": {
+        "board": "xiao_stm32c5/stm32c5a3xx",
+        "transport": "serial",
+        "flash": "serial,dfu"
+      },
+      "installLevel": "D3",
+      "repo": "wentywenty/robopoly-xiao",
+      "install": "robopoly plugin flash xiao-gateway-xiao_stm32c5-stm32c5a3xx --board xiao_stm32c5/stm32c5a3xx --port <serial> --yes",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "versionCode": 10100,
+          "zipUrl": "https://github.com/wentywenty/robopoly-xiao/releases/download/xiao-firmware-v1.1.0/xiao-gateway-xiao_stm32c5-stm32c5a3xx-1.1.0.zip",
+          "size": 219978,
+          "sha256": "f891fdc7c645ca9a6ccbfafbce24c088851add9af01998691c7e0b7a0b75d965"
+        }
+      ]
+    }
+  ]
+}

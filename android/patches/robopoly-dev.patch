@@ -1,0 +1,938 @@
+diff --git a/README.md b/README.md
+index 1459043..60c4c54 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,7 @@
+ # robopoly
+ 
+-机器人 C++ 控制核（L2）和开发工具（L4）。Android App、内核模块和设备安装入口位于同级的 [android_deploy](../android_deploy/) 仓库。
++机器人 C++ 控制核（L2）和开发工具（L4）。本仓库只覆盖设备运行层 `robotd/` 与上位机开发套件 `dev/`；
++Android App、内核模块与设备安装入口不在本仓库，本文不假设它们的本地路径。
+ 
+ ## 目录
+ 
+@@ -45,7 +46,8 @@ BUILD=build/deploy-ndk ./scripts/pack_deploy.sh
+ 
+ 产物为 `build/deploy-<MODE>.tar.gz` 及其 `.sha256`。包内包括
+ `bin/robotd`、`bin/joystick`、可选 CAN 工具、`assets/`、设备脚本和校验清单。
+-设备安装见 [android_deploy 部署指南](../android_deploy/docs/DEPLOY-QUICKSTART.md)。
++把部署包解到 App 私有目录或 `<deployDir>/`，由 App/`su` 拉起；
++具体安装步骤以承载 App 的仓库文档为准。
+ 
+ ## Gemm 优化
+ 
+@@ -105,6 +107,9 @@ HF_ENDPOINT=https://hf-mirror.com ./scripts/robopoly action install \
+ 
+ - Bundle 规范与 JSON Schema：`tools/action_hub/schema/action.schema.json`；模板见
+   `tools/action_hub/action.example.yaml`。
++- 目标契约：Bundle 根目录必须是非空的单数文件 `skill.md`，并纳入 `SHA256SUMS` 覆盖。
++  **本仓库当前校验器尚未强制该文件**（`bundle.py` / `sensor_bundle.py` 没有对应检查）；
++  `robopoly` 仓库已强制。不要把两个仓库的行为混写。
+ - 同时兼容计划书的 `runtime.entry` 与试点仓库的 `runtime.model`；`action.yaml` 无
+   `checksums` 时可用 `--allow-missing-checksums` 依赖 HF 文件元数据校验。
+ - 生成/校验 Bundle：`./scripts/robopoly action pack <bundle-dir>`（自动补 `checksums` 与
+@@ -146,6 +151,28 @@ D1 配置用 `plugin apply` 暂存/合并；D3 固件用 `plugin flash --allow-d
+ - 首批：TWS BMS、HIPNUC IMU、NST175、ADC_48V，以及 14 个 XIAO gateway D3 固件包
+ - 源码闭源；只分发 `.so` / `.bin` / `.ko` 与配置
+ - D2/D3 需要 `--allow-danger`，只落盘不执行
++- 目标契约同样要求 sensor bundle 根部非空 `skill.md`；**本仓库当前 `sensor_bundles/` 尚未包含
++  `skill.md`，校验器也未强制**。CLI 的 `plugin install` 只下载/校验到缓存，`plugin apply`
++  才把 D1 配置写入 deploy，`plugin flash` 才显式执行刷写命令。
++- App 侧安装插件 ZIP 是独立路径：只把 ZIP 解到 App 私有目录并校验包内清单，不改 deploy
++  配置、不执行驱动或固件。
++
++## App 目标导航
++
++App 实现不在本仓库，以下是目标信息架构（以实际 APK 为准）：
++
++| 导航 | 内容 |
++| --- | --- |
++| 总览 | 机器人状态、连接状态、当前动作入口 |
++| 交互 | 手柄、NPZ 示教、MCP + DeepSeek + Skill；装配标定（含 NFC 零件） |
++| 机器人 | URDF / 模型；装配模板使用已安装 URDF，本地标定/零件覆盖保留 |
++| 传感器 | 传感器与外设目录、实时状态、配置包安装 |
++| 运维 | 设置、诊断、插件安装、日志与部署 |
++
++- 设置归在“运维”，不单独占顶级入口。
++- 手柄经 `joystick` 的 `app` 模式；NPZ 示教经 L2 的采集/回放接口；两者都不绕过控制核直连硬件。
++- MCP + DeepSeek 接入代码目前只注册只读工具；未做在线端到端验证，文档不把它写成已验证能力。
++- Skills 扫描只枚举实际可读的已安装根目录；没有证据时不得笼统断言 Termux 路径不可访问。
+ 
+ ## 文档
+ 
+diff --git a/dev/benchmarks/onnx-gemm/README.md b/dev/benchmarks/onnx-gemm/README.md
+index c7c8848..85a4f7d 100644
+--- a/dev/benchmarks/onnx-gemm/README.md
++++ b/dev/benchmarks/onnx-gemm/README.md
+@@ -1,13 +1,13 @@
+ # ONNX Gemm Benchmark
+ 
+-This tool belongs to robot_deploy, which owns the inference backend. It compares
++This tool belongs to robopoly, which owns the inference backend. It compares
+ the same deployed RPO model with four Gemm compiler configurations. Only Gemm.c
+ differs; all other object files are shared. It never opens robot hardware.
+ 
+ ## Build
+ 
+ Requirements: CMake, Ninja, Android NDK, an initialized libonnx submodule.
+-Run from the robot_deploy repository root:
++Run from the robopoly repository root:
+ 
+ ```powershell
+ git submodule update --init robotd/thirdparty/libonnx
+diff --git a/docs/android_robot_controller_porting.md b/docs/android_robot_controller_porting.md
+index edb98ba..8e2eb70 100644
+--- a/docs/android_robot_controller_porting.md
++++ b/docs/android_robot_controller_porting.md
+@@ -2,13 +2,13 @@
+ 
+ > 项目：**robopoly on Android (GKI)** —— 把机器人主控移植到 Android 设备。
+ > 架构主线：**AMP 极致隔离**（同 SoC 上 Android 交互驻 Core 0–6，纯 C++ 控制核独占大核 Core 7）。
+-> 本文为**总纲**；实现细节按层拆分（**四层**）：
+-> **L1 模块层** `module_layer.md`（内核 `.ko` + Magisk/KSU 模块 + CPU 隔离）、
+-> **L2 部署层** `deploy_layer.md`（控制核 / ONNX 与 lib 交叉编译 / 部署三态）、
+-> **L3 应用层** `app_layer.md`（APK / 交互与监工）、
+-> **L4 开发层** `dev_layer.md`（上位机开发套件 `robopoly_dev`：pybind 主接口 + 调参/标定 + ROS2/rmw_zenoh）。
+-> 硬性约束见 `assets/agent.md`（未经同意不改内核源码、不编译内核）。
++> 本文为**总纲**；本仓库 `docs/` 只包含 **L2 部署层** `deploy_layer.md` 与
++> **L4 开发层** `dev_layer.md`。**L1 模块层**（内核 `.ko`/Magisk/KSU/CPU 隔离）和
++> **L3 应用层**（APK/UI/插件安装）不在本仓库，本文不假设其文档名、脚本名或本地路径。
+ > 状态：草案 v0.3
++>
++> 记录边界：文中的内核/KMI 表、Release、联调与实测结论是历史记录；本次文档更新没有
++> 重新验证硬件、发布资产或第三方许可证。交付前以目标设备实测与对应仓库源码为准。
+ 
+ ---
+ 
+@@ -48,13 +48,14 @@
+ 
+ ### 1.3 交付物
+ 
+-- 驱动模块包 `robot_module.zip`（按 KMI/架构归档的 `.ko` + `app/` APK；**不含 L2 代码**）；
++- L1 侧模块包（按 KMI/架构归档的 `.ko`，可带 APK；**不含 L2 代码**；打包不在本仓库）；
+ - L1 CPU 隔离脚本（并入模块 `service.sh` 或片段）；
+ - `robotd` 静态二进制（L2 外壳）+ `joystick`（**独立 deploy 产物 / APK 私有目录，不进模块包**）；
+ - 调试开发套件 `dev/`（pybind 模块 + 调参/标定脚本 + Termux/Ubuntu 安装；**不进设备**）；
+-- 本文档 + **四份分层文档**（`module_/deploy_/app_/dev_layer.md`）+ `agent.md`。
++- 本文档 + 本仓库的 **L2/L4 分层文档**（`deploy_layer.md`、`dev_layer.md`）；
++  L1/L3 文档在各自承载仓库，不在本仓库。
+ 
+-### 1.4 既有软件资产（`robot_deploy`）
++### 1.4 既有软件资产（`robopoly`）
+ 
+ | 组件 | 说明 |
+ |---|---|
+@@ -66,8 +67,8 @@
+ | `robotd/assets/`（`rpo/`、`rp1.3/`） | 配置 / ONNX 策略 / motions / `zenoh.yaml` / `types.<distro>.yaml` |
+ | `robotd/thirdparty/` | vendored：`cnpy`/`libonnx`/`can-utils` + **`zenoh-pico`(1.10.1)**（`yaml-cpp`/`spdlog`/`eigen` 已迁 vcpkg） |
+ | `dev/` | **L4 开发层开发套件**：pybind 主接口 + 调参/标定脚本 |
+-| 同级仓库 `android_deploy/module/` | Magisk/KernelSU 模块模板（驱动 + APK；**不含 L2 `robotd`**） |
+-| `scripts/build_all.sh`、`scripts/move_ko.sh`、`scripts/pack_module.sh` | 一键编译 / 收集 / 打包脚本 |
++| 独立的 L1/L3 工程（不在本仓库） | 内核模块与 APK；本仓库不提供其模板或打包脚本 |
++| `scripts/build_all.sh`、`scripts/build_deploy.sh`、`scripts/pack_deploy.sh`、`scripts/robopoly` | 编译 / 打包 / Bundle CLI 入口 |
+ 
+ > 现有栈面向 Debian/RISC-V Linux（glibc、原生 SocketCAN）。移植到 Android 的唯一硬约束：
+ > 设备内核需提供 SocketCAN / USB 串口能力，且 root 进程可访问设备节点。
+@@ -84,9 +85,9 @@
+ 
+ | 层 | 定位 | 运行位置 / 资源域 | 文档 |
+ |---|---|---|---|
+-| **L1 模块层** | 内核 `.ko` + Magisk/KSU + 实时底座 | `su` / kernel | `module_layer.md` |
++| **L1 模块层** | 内核 `.ko` + Magisk/KSU + 实时底座 | `su` / kernel | 不在本仓库 |
+ | **L2 部署层** | Bionic / 纯 C++ 算法核 | Core 7 独占 | `deploy_layer.md` |
+-| **L3 应用层** | APK / 监工与 UI | `untrusted_app`（+su），Core 0–6 | `app_layer.md` |
++| **L3 应用层** | APK / 监工与 UI | `untrusted_app`（+su），Core 0–6 | 不在本仓库 |
+ | **L4 开发层** | 开发套件（pybind + 上位机 ROS2/rmw_zenoh） | 上位机 Termux / Ubuntu，**不在设备** | `dev_layer.md` |
+ 
+ > **运行期三层（L1–L3）在设备内**，构成控制闭环；**L4 开发层在上位机侧**，供研发/调参/标定，不进投产。
+@@ -111,11 +112,11 @@
+ - **跨界拉起**：通过 `Runtime.exec("su")` 向下穿透，解包并拉起 L2 二进制主控进程；两者经 **stdio** 通信
+   （stdout JSON Lines 给 App、stdin 写控制、stderr 人读日志）；**UI 崩溃绝不波及 Core 7 的物理控制**。
+ - **可选 Zenoh Router（内置）**：APK 可作 **Zenoh Router**（`zenoh-kotlin`，默认 `mode:router`，UI 开关，用时开）；
+-  此时 `robotd`(zenoh-pico, client) 与上位机都接入手机；不用则可关闭（见 `app_layer.md §3.8/§8.8`）。
++  此时 `robotd`(zenoh-pico, client) 与上位机都接入手机；不用则可关闭（App 侧实现不在本仓库）。
+ 
+ **L4 开发层（上位机开发套件 `dev/`）**
+ 
+-- **主接口 pybind**：`motors_py`/`imu_py`/`robot_py` 直接调 `robot_deploy` 的 C++ 库；配套调参/标定/采集脚本。
++- **主接口 pybind**：`motors_py`/`imu_py`/`robot_py` 直接调 `robotd/` 的 C++ 库；配套调参/标定/采集脚本。
+ - **上位机侧**：ROS2 + `rmw_zenoh` 对接 L2 的 zenoh 客户端；Router 可用上位机 `rmw_zenohd`，**也可用 APK 内置 Router**（见 L3 节）。
+ - **定位**：Termux / Ubuntu 开发套件，**不进设备、不进模块包**；投产 `robotd` 不依赖 Python。
+ 
+@@ -165,13 +166,24 @@ L2 ──降采样遥测(30Hz)/日志──► L3 展示
+ - **NFC 工件智能装配**：利用手机背部 NFC（`NfcAdapter` API）。机器人末端/手机贴近工件时，秒级读取 RFID
+   标签内的**工件 ID、重量、位姿偏移量**；APK 获取后直接作为环境约束喂给 L2 的**运动学解算器**，
+   实时修正抓取轨迹。
++- **装配模板**：模板使用已安装的 URDF 描述包；用户在本地做的覆盖/改配保留，插件 ZIP 安装不得覆盖
++  本地覆盖。URDF / 动作 / 模板的安装只落盘，不自动使能。
+ 
+ **2）交互场景（人机协同与 AI 代理）— 核心诉求：多模态网关，把高维 AI 意图降维成底层动作**
+ 
+ > **边界**：**MCP / MQTT 网关的成本由 L3 APK 层承担**（可整体禁用）；L2 只暴露 **stdio**（+ 可选 zenoh），不含 MCP/MQTT。
+ 
+-- **MCP 服务器**：APK 作为 HTTP/WebSocket 后台服务驻留（Foreground Service），向云端大模型
+-  **暴露机器人能力（Tool Calling）**；收到自然语言指令（如“把工件放到左边”）后解析为位姿目标，经 zenoh 下发 L2。
++- **手柄控制器**：交互页的手柄输入映射为 `joystick` 的 `app` 模式 NDJSON（axes/buttons/cmd），
++  经 L2 的 `joystick` 前端生效；App 不直连 CAN 或绕过控制核。
++- **NPZ 示教**：交互页进入示教模式后，L2 采集关节序列并用 `cnpy` 导出 `.npz`；App 负责命名、
++  上传与一键回放。录制/回放不等于使能，回放前仍需支撑、急停和限流条件。
++- **MCP + DeepSeek + Skill**：APK 作为 HTTP/WebSocket 后台服务驻留（Foreground Service），向模型
++  **暴露机器人能力（Tool Calling）**。当前 DeepSeek 接入代码只注册**只读工具**，不触发运动、
++  不写配置；未做在线端到端验证，文档不把它写成已验证能力。
++- **Skills 扫描**：MCP 的 Skills 扫描只枚举**实际可读的已安装根目录**，读不到时返回可见错误；
++  没有逐路径、逐权限的证据时，不得笼统断言 Termux 路径整体不可访问。
++- **MCP 服务器**：收到自然语言指令后解析为位姿/动作目标，经 L2 已有接口下发；能力列表与安全等级
++  由 action/sensor bundle 的 `skill.md` 描述，但安装不等于使能。
+ - **MQTT 网关**：APK 内做云端/IoT 桥（遥测发布 = 读 stdout `state`；命令订阅 → stdin），不占 L2 实时路径。
+ - **Matter 控制设备**：利用 Android 的 Matter 协议栈，让机器人成为智能工厂/全屋智能的**标准节点**，
+   与其它 IoT 设备场景联动。
+@@ -186,6 +198,8 @@ L2 ──降采样遥测(30Hz)/日志──► L3 展示
+   `.ko` 状态；读 `/sys/class/power_supply` 获取真实物理电池电量。
+ - **推理与运行日志**：L2 用 `spdlog` 落盘；前端直接读 `/data/opt/robot/logs/` 文本渲染，排查 libonnx
+   前向传播耗时 / CAN 丢包。
++- **设置**：App 的设置统一放在“运维”，不单独占顶级入口；包括插件源、App 私有 ZIP 安装、
++  部署目录、日志与诊断。
+ 
+ **4）开发场景（算法迭代与生态分发）— 核心诉求：动态热更新与环境无缝配置**
+ 
+@@ -196,10 +210,33 @@ L2 ──降采样遥测(30Hz)/日志──► L3 展示
+ - **NPZ 动作录制**：示教模式下 L2 把采集的序列化关节数据存入内存，结束后用 `cnpy` 导出为 NumPy 兼容
+   `.npz`；APK 接管并提供重命名、云端上传或**一键回放**。
+ 
++### 2.6 App 目标信息架构
++
++App 实现不在本仓库；以下是目标导航与边界（以实际 APK 为准）：
++
++| 导航 | 内容 |
++|---|---|
++| 总览 | 机器人状态、连接、当前动作入口 |
++| 交互 | 手柄、NPZ 示教、MCP + DeepSeek + Skill；装配标定（含 NFC 零件） |
++| 机器人 | URDF / 模型；装配模板使用已安装 URDF，本地标定/零件覆盖保留 |
++| 传感器 | 传感器/外设目录、实时状态、配置包 |
++| 运维 | 设置、诊断、插件安装、日志与部署 |
++
++- **两种安装路径不要混用**：
++  - App 私有插件 ZIP 安装：校验 `sensor.yaml`、`skill.md`、`SHA256SUMS` 后解到 App 私有目录；
++    不改 deploy 配置、不执行驱动/固件。
++  - CLI 路径：`plugin install` 只下载/校验到缓存；`plugin apply` 才写 deploy 配置；
++    `plugin flash` 才显式执行刷写命令。
++- `skill.md` 是 action/sensor bundle 的目标必需单数文件，并需被 `SHA256SUMS` 覆盖；
++  不要用 `skills/` 目录或多个文件替代。**本仓库当前校验器尚未强制，`robopoly` 仓库已强制。**
++
+ ---
+ 
+ ## 3. 平台与目标内核
+ 
++> 本节内核版本、KMI/LKM 清单与哈希来自历史工作记录，本仓库不包含内核树或对应 LKM；
++> 本次更新未重新验证。交付前请用目标设备 `uname`/`modinfo` 与官方清单复核。
++
+ ### 3.1 本仓库对应版本
+ 
+ | 项 | 值 |
+@@ -293,7 +330,8 @@ adb shell uname -r; adb shell uname -m; adb shell getconf PAGE_SIZE; adb shell c
+ 
+ ### 3.5 目标芯片范围（以 **CAN-FD** 为准）
+ 
+-**唯一硬门槛**：USB-CAN 适配器要 **CAN-FD**，则内核需 **≥ Linux 5.18**（`gs_usb` 的 CAN-FD 驱动支持；见 `module_layer.md §10.1`）。
++**唯一硬门槛**：USB-CAN 适配器要 **CAN-FD**，则内核需 **≥ Linux 5.18**（`gs_usb` 的 CAN-FD 驱动支持；
++L1 模块文档不在本仓库）。
+ > 注意：SocketCAN 的 **CAN-FD 核心**早在 **Linux 3.8** 就有（`canfd_frame`/`CAN_CTRLMODE_FD`）；5.18 之前缺的是 **`gs_usb` 驱动里的 FD 实现**，不是核心。
+ 
+ **推荐范围**：
+@@ -430,21 +468,23 @@ adb shell uname -r; adb shell uname -m; adb shell getconf PAGE_SIZE; adb shell c
+ 
+ | 层 | 文档 | 内容 |
+ |---|---|---|
+-| **L1 模块层** | `module_layer.md` | Linux 内核 `.ko`（GKI 编译/Kconfig/产物校验）、Magisk/KernelSU 模块（目录/customize/service/sepolicy/双框架/打包）、CPU 隔离与实时底座、外设驱动清单、排错 |
++| **L1 模块层** | 不在本仓库 | Linux 内核 `.ko`、Magisk/KernelSU 模块、CPU 隔离；以承载仓库文档为准 |
+ | **L2 部署层** | `deploy_layer.md` | 控制核（静态单 ELF/绑核/FIFO）、**ONNX 与 lib 交叉编译**（NDK/Eigen/Boost/libonnx/cnpy/zenoh-pico）、`robotd`、三态工作流、产物打包、数据层与在线同步 |
+-| **L3 应用层** | `app_layer.md` | 上层 **APK**：与 L2 边界、四场景落地、**stdio 协议**（stdout 数据 / stdin 控制 / stderr 日志）、随模块安装、更新模型/OTA、App 侧安全与排错 |
++| **L3 应用层** | 不在本仓库 | 上层 **APK**：与 L2 边界、场景落地、**stdio 协议**、插件安装、更新模型/OTA；以承载仓库文档为准 |
+ | **L4 开发层** | `dev_layer.md` | 开发套件 `dev/`：pybind 主接口、调参/标定/采集脚本、上位机 ROS2/`rmw_zenoh`、Termux/Ubuntu 构建与 `.deb` |
+ 
+ > 四层关系：**L1 模块层**交付驱动 + 装载 + 隔离；**L2 部署层**产出设备控制核与数据；**L3 应用层**消费并呈现；
+-> **L4 开发层**在上位机供研发/调参。L1–L3 由 Magisk 模块 zip（驱动 + APK）与独立 L2 部署包交付；L4 独立分发、不进设备。
++> **L4 开发层**在上位机供研发/调参。L1/L3 的打包与交付在对应仓库，本文只描述边界。
+ 
+ ---
+ 
+ ## 5. 里程碑
+ 
++> 以下为历史进度记录，本次文档更新没有逐项复测；`[x]` 只表示当时的记录状态。
++
+ - [ ] M0：确定目标设备（SoC/KMI/架构），填 §3.4。
+ - [ ] M1：编出 `gs_usb.ko` 等 7 个驱动，`modinfo` 校验通过。**（已完成 .ko；清单已同步）**
+-- [ ] M2：`robot_module` 模块在设备可安装、`service.sh` 能 insmod、`lsmod` 可见。
++- [ ] M2：L1 模块在设备可安装、`service.sh` 能 insmod、`lsmod` 可见。
+ - [ ] M3：多 KMI/架构归档 + `customize.sh` 选择与 abort。
+ - [ ] M4：SocketCAN 实机收发（`candump`/`cansend`）。
+ - [ ] M5：USB 串口按序加载，`/dev/ttyUSB*` 可用。
+@@ -459,12 +499,11 @@ adb shell uname -r; adb shell uname -m; adb shell getconf PAGE_SIZE; adb shell c
+ 
+ ## 6. 参考
+ 
+-- 分层文档（四层）：`docs/module_layer.md`(L1)、`docs/deploy_layer.md`(L2)、`docs/app_layer.md`(L3)、`docs/dev_layer.md`(L4)
+-- 硬性约束：`assets/agent.md`
++- 分层文档（本仓库）：`docs/deploy_layer.md`(L2)、`docs/dev_layer.md`(L4)；L1/L3 文档在各自仓库
+ - 内核树 `common/`（Linux 5.10.257，`common-android12-5.10-2026-07`）
+ - 构建：`common/build.config.gki.aarch64`、`build/build.sh`、`build/build_abi.sh`
+ - KMI：`common/android/abi_gki_aarch64*`、`abi_gki_aarch64.xml`
+ - 机器人栈：`robotd/{motors,imu,decouple,inference,zenoh,joystick,assets}`
+ - L4 开发套件：`dev/`（pybind + 脚本）
+-- 模块/脚本：`android_deploy/module/`、`scripts/build_all.sh`、`scripts/move_ko.sh`、`scripts/pack_module.sh`
++- 脚本：`scripts/build_all.sh`、`scripts/build_deploy.sh`、`scripts/pack_deploy.sh`、`scripts/robopoly`
+ - 模型解析/引擎兼容：`docs/deploy_layer.md` §10 附录（RPO `policy.onnx`；libonnx/ncnn）
+diff --git a/docs/deploy_layer.md b/docs/deploy_layer.md
+index fd15371..6ff58ee 100644
+--- a/docs/deploy_layer.md
++++ b/docs/deploy_layer.md
+@@ -4,6 +4,9 @@
+ > 开发层（pybind / 调参工具 / host ROS2+rmw_zenoh）见 `dev_layer.md`。
+ > 职责：把 C++ 源码 + ONNX/lib 依赖经 NDK 交叉编译成**单一 ARM64 静态 ELF**（`robotd`）；
+ > 管理编译/调试/量产三态与产物分发；在线同步 `.onnx`/轨迹等数据。
++>
++> 范围：L1 模块层与 L3 App 不在本仓库；本文不假设其文档或脚本路径。文中的“已实测”条目是
++> 历史记录，本次文档更新没有重新上机或重新验证发布资产。
+ 
+ ---
+ 
+@@ -13,8 +16,8 @@
+ - **依赖库**：共 **10 份**（详见 §3.2），全部**静态链接**，规避 `.so` 地狱；目标**运行期零第三方 `.so`**。
+ - **产物（deploy 部署包）**：`bin/`＝`robotd` + `joystick` + `can-utils`；
+   `scripts/`＝设备侧 sh；`assets/`＝资源 → 由 **deploy 部署包 / APK 私有目录**承载，经 APK `su` 拉起；
+-  **不进入 `robot_module.zip`**（模块层只出内核侧 `.ko`，见 `module_layer.md` §1 边界）。
+-- **边界（重要）**：**MCP / MQTT 网关由 L3 APK 层承担**（见 `app_layer.md`），L2 只提供本地 IPC/CLI + 可选 zenoh；本层不含 MCP/MQTT。
++  **不进入 L1 模块包**（模块层只出内核侧 `.ko`；模块打包不在本仓库）。
++- **边界（重要）**：**MCP / MQTT 网关由 L3 APK 层承担**（App 实现不在本仓库），L2 只提供本地 IPC/CLI + 可选 zenoh；本层不含 MCP/MQTT。
+ 
+ ### 1.1 工程架构总览（目录 / 依赖 / 目标图）
+ 
+@@ -139,7 +142,7 @@ robotd/
+ ### 3.4 构建（示例）
+ 
+ ```sh
+-# 顶层工程 robot_deploy（motors/imu/decouple/inference/zenoh/joystick；robotd 为其 target）
++# 顶层工程 robopoly（`robotd/`：motors/imu/decouple/inference/zenoh/joystick；robotd 为其 target）
+ cmake -S robotd -B robotd/build \
+   -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 \
+@@ -154,7 +157,7 @@ cmake --build robotd/build --target robotd -j$(nproc)
+ 
+ #### 3.4.1 编译目标与源文件清单
+ 
+-`robot_deploy` 顶层工程实际编译的目标（`target` → 源文件）：
++`robotd/` 顶层工程实际编译的目标（`target` → 源文件）：
+ 
+ | 目标 | 类型 | 源文件 |
+ |---|---|---|
+@@ -182,7 +185,7 @@ cmake --build robotd/build --target robotd -j$(nproc)
+ > 注意：`motors/src/drivers/*`、`imu/src/drivers/hipnuc` 用 `AUX_SOURCE_DIRECTORY` 自动收集该目录下**所有** `.c/.cpp`；
+ > `imu_protocol` 用 `file(GLOB_RECURSE)`；`libonnx` 用 `file(GLOB)`。新增/删除源文件后需重新 `cmake` 配置。
+ > `can-utils` 由 `thirdparty/CMakeLists.txt` 的 `canutils` 目标构建（见 §3.5）。
+-> **`robot_deploy` 不含 Python/pybind**：pybind 模块与调试脚本移至独立调试工程 **`dev/`**（见 §5.5）。
++> **`robotd/` 不含 Python/pybind**：pybind 模块与调试脚本在独立调试工程 **`dev/`**（见 §5.5）。
+ 
+ **控制输入：`joystick` 模块（YAML 配置驱动，两模式）**
+ - 配置：`assets/joystick.yaml`（`mode`/`device`/`poll_hz`/`mock`/`policy_config`/`robot_config`）——**改配置重启即可**，与 `robotd` 一致。
+@@ -191,7 +194,7 @@ cmake --build robotd/build --target robotd -j$(nproc)
+ - `GamepadController` 把输入映射为 engine 命令（`cmd_vel`/使能/暂停/reset）；**L3/APK 的"控制"= 走 `app` 模式**。
+ - 静态库 `joystick_sources` / `joystick_config` / `joystick_gamepad` + 可执行 `joystick`；**始终构建**。
+ 
+-**`app` 模式 stdio 协议（APK ↔ joystick，已实测）**
++**`app` 模式 stdio 协议（APK ↔ joystick，历史联调记录）**
+ 
+ - **stdin（App→L2，每行一条 NDJSON）**：
+   - `{"axes":[8×float],"buttons":[11×int]}` —— 高频摇杆/手柄（`GamepadController.apply_axes/buttons`）；
+@@ -259,7 +262,7 @@ cmake --build build/deploy-native --target joystick -j
+ ### 3.8 zenoh（设备侧桥，已接入）
+ 
+ - **定位**：设备侧 **zenoh-pico** 桥（`RP_WITH_ZENOH=ON`，**默认 ON**），对接 **App 内置 Zenoh Router**
+-  （`zenoh-kotlin`，默认 `mode:router`、UI 开关，见 `app_layer.md §3.8/§8.8`）或 host 的 **ROS2 + `rmw_zenoh`**。
++  （`zenoh-kotlin`，默认 `mode:router`、UI 开关；App 实现不在本仓库）或 host 的 **ROS2 + `rmw_zenoh`**。
+   **原 XRCE-DDS/`dds/` 已整体移除**（deploy 与 dev 均不含 DDS）。
+ - **源码已 vendor**：`robotd/thirdparty/zenoh-pico`（`1.10.1`）。
+ - **复刻 rmw_zenoh 约定**（`rmw_zenoh/docs/design.md`）：
+@@ -325,7 +328,7 @@ git submodule status                        # 查看钉住的 commit
+ - **triplet**：`robotd/thirdparty/triplets/{x64-linux-static,arm64-android-static}.cmake`（static + release；Android triplet 注释 API 28，实际构建由 `build_deploy.sh` 传 `ANDROID_PLATFORM=android-29`）。
+ - **继续 vendored**：`cnpy`、`libonnx`、`can-utils`、`zenoh-pico`。
+ - **构建**：`scripts/build_deploy.sh`（`MODE=native|ndk` 注入 vcpkg 工具链/triplet；`MODE=termux` 默认走 `pkg`）。命令见 §6。
+-- **dev 耦合**：`robopoly_dev` 现 `add_subdirectory(robot_deploy)`，编 dev 时也会走 vcpkg 工具链（暂接受）。
++- **dev 耦合**：`robopoly_dev` 现 `add_subdirectory(robotd)`，编 dev 时也会走 vcpkg 工具链（暂接受）。
+ 
+ ### 3.12 并联/闭链解算（`decouple/`，静态库）
+ 
+@@ -370,7 +373,7 @@ git submodule status                        # 查看钉住的 commit
+   - 故障：`{"ev":"fault","v":"<msg>"}`（跌倒 / 关节超限等）
+ - **配置**：`assets/<robot>/configs/*.yaml` 的 `telemetry_hz`。
+ - **解析建议**：按行 parse JSON；无法解析的行跳过；以是否存在 `"ev"` 区分事件/状态。
+-- **消费方**：L3 APK 读 stdout 渲染 UI；MCP/MQTT 网关以同一流为数据源（见 `app_layer.md`）。
++- **消费方**：L3 APK 读 stdout 渲染 UI；MCP/MQTT 网关以同一流为数据源（App 实现不在本仓库）。
+ 
+ ---
+ 
+@@ -401,7 +404,7 @@ pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+ ### 5.4 Termux 端上构建（dev-only，非投产）
+ 
+ > 定位：**开发便利**——在 Termux 里以 bionic 编出 `robotd` 跑起来，方便端上迭代。**不是投产交付**；
+-> 投产用 APK 私有目录（APK 经 `su` 拉起，root 域，见 `app_layer.md`）。
++> 投产用 APK 私有目录（APK 经 `su` 拉起，root 域；App 实现不在本仓库）。
+ 
+ 脚本现已归入开发套件 `dev/termux/`：
+ 
+@@ -417,14 +420,14 @@ cp -r termux-packages/robotd /path/to/termux-packages/packages/robotd
+ ./build-package.sh robotd     # 产出 robotd_*.deb
+ ```
+ 
+-- 依赖 Termux 侧 `libc++,boost,eigen,spdlog,yaml-cpp,zlib`；`libonnx/cnpy` 用 robot_deploy vendored 源码（`yaml-cpp` 走 `pkg`）。
++- 依赖 Termux 侧 `libc++,boost,eigen,spdlog,yaml-cpp,zlib`；`libonnx/cnpy` 用本仓库 vendored 源码（`yaml-cpp` 走 `pkg`）。
+ - Termux 属 `untrusted_app`，**运行需 `tsu`** 才能开 CAN/串口；实时性不保证（隔离/绑核见模块层 §13）。
+ - 开发层的 pybind/调参见 `dev_layer.md`。
+ 
+ ### 5.5 开发层（pybind / 调参工具）
+ 
+ `dev/` 是**独立开发套件**（pybind 主接口 + 调参/标定/采集脚本 + Termux/deb 打包），面向 Termux / Ubuntu，
+-**不属 `robot_deploy`、不进设备**。详见 **`dev_layer.md`**。
++**不属 `robotd/`、不进设备**。详见 **`dev_layer.md`**。
+ 
+ - pybind 模块：`motors_py` / `imu_py` / `robot_py`。
+ - 构建：`dev/termux/build-pybind-termux.sh`（Termux）或 `dev/pack-deb.sh`（Ubuntu `.deb`）。
+@@ -438,7 +441,7 @@ cp -r termux-packages/robotd /path/to/termux-packages/packages/robotd
+ **前置（首次）：初始化 vcpkg**
+ 
+ ```sh
+-cd /path/to/robot_deploy
++cd /path/to/robopoly
+ git submodule update --init --depth 1 robotd/vcpkg
+ robotd/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+ ```
+@@ -446,7 +449,7 @@ robotd/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+ **PC（native，vcpkg `x64-linux-static`）**
+ 
+ ```sh
+-cd /path/to/robot_deploy
++cd /path/to/robopoly
+ ./scripts/build_deploy.sh                 # 等价于下方 cmake；产物 build/deploy-native/robotd
+ # 或直接：
+ cmake -S robotd -B build/deploy-native \
+@@ -489,10 +492,10 @@ MODE=riscv ./scripts/build_deploy.sh          # -> build/deploy-riscv/robotd（
+ 
+ ```sh
+ ./scripts/pack_deploy.sh                  # -> build/deploy-<MODE>.tar.gz
+-./scripts/build_all.sh                    # 总编排：build_deploy + pack_deploy + pack_module
++./scripts/build_all.sh                    # 总编排：build_deploy + 可选 build_dev + pack_deploy
+ ```
+ 
+-- `build_deploy.sh`：顶层 `robot_deploy` CMake，`TARGET`（默认 `robotd`）、`MODE`（`native`/`ndk`/`termux`）、
++- `build_deploy.sh`：顶层 `robotd/` CMake（工程名 `robot_deploy`），`TARGET`（默认 `robotd`）、`MODE`（`native`/`ndk`/`termux`/`riscv`）、
+   `BUILD`（默认 `build/deploy-<MODE>`）、`WITH_ZENOH`（默认 1）、`WITH_CANUTILS`（ndk 默认 1）；
+   `native`/`ndk` 注入 vcpkg 工具链与 triplet；构建 `robotd` + `joystick`（+ `canutils`）。
+ - vcpkg 首次会自动下载/编译依赖（需网络）；可用 binary caching 加速（待启用）。
+@@ -503,10 +506,10 @@ MODE=riscv ./scripts/build_deploy.sh          # -> build/deploy-riscv/robotd（
+   - `assets/`：configs/models/motions；
+   - `VERSION` / `SHA256SUMS` / `manifest.json`：OTA 元数据（版本 + 逐文件校验）；另出 `<包>.sha256` 侧车。
+   - `VERSION` 可用环境变量覆盖（默认 `0.1.0`）。
+-- 其余：`build_ko.sh`（各版本 `.ko`，按 manifest 切源）、`build_app.sh`（APK）、`pack_module.sh`（模块 zip）、`move_ko.sh`（收集 ko）。
+-  详见 `module_layer.md` §12.7。
++- 本仓库另有 `build_dev.sh`（pybind 开发套件）与 `gen_zenoh_types.sh`（生成 Zenoh 类型表）；
++  模块/APK 打包脚本不在本仓库。
+ 
+-### 6.1 端上联调（已实测）
++### 6.1 端上联调（历史记录，本次未复测）
+ 
+ - **NDK 交叉（消费方）**：必须显式加
+   `-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake`
+@@ -558,7 +561,8 @@ assets/
+ **在线同步（OTA）**：`pack_deploy.sh` 产出 `deploy-<MODE>.tar.gz`（含 `VERSION` / `SHA256SUMS` / `manifest.json`）
+ + 包体 `deploy-<MODE>.tar.gz.sha256`。APK 下载后：先验包体 `.sha256` → 解包按 `manifest.json` 逐文件验 `sha256`
+ → `su` **原子替换**（临时文件 → `fsync` → `rename` → `killall robotd` 重启；失败回滚）→ `chmod 0755`。
+-同步的是**编译产物/模型，不是源码**；“在线同步源码”仅发生在开发态（Termux/CI）。详见 `app_layer.md` §5.3。
++同步的是**编译产物/模型，不是源码**；“在线同步源码”仅发生在开发态（Termux/CI）。
++App 侧下载/校验/原子替换实现不在本仓库。
+ 
+ ---
+ 
+@@ -578,11 +582,11 @@ assets/
+ | 链接报缺 `.so` | 未全静态 | 加 `-static`，静态链 libc++ |
+ | 运行时缺库/解释器 | 动态依赖 | 全静态；避免桌面 glibc 依赖 |
+ | 控制 jitter 大 | 非 RT/优先级不足/未 mlockall | 绑核 + FIFO + mlockall + 实测 |
+-| Core7 被抢占 | 隔离未生效 | 见 `module_layer.md` §13 |
++| Core7 被抢占 | 隔离未生效 | 见 L1 文档/脚本（不在本仓库） |
+ | 推理耗时长 | 模型/算子不匹配 | 核对 libonnx 支持算子（见 §10 附录） |
+ | OTA 替换失败 | 非原子/校验失败 | 临时文件 + `rename`；sha256；失败回滚 |
+ | `cansend`/`candump` not found | can-utils 不在 `PATH` | 安装/放入 `PATH`（§3.5） |
+-| robot_deploy 构建想要 Python | 误以为 L2 需要 pybind | L2 不需要；调试内容在 `dev/`（`dev_layer.md`） |
++| `robotd/` 构建想要 Python | 误以为 L2 需要 pybind | L2 不需要；调试内容在 `dev/`（`dev_layer.md`） |
+ | 模块运行缺 `.so` | 未静态链接 | 全部 vendored 静态（§3.7） |
+ 
+ > pybind / 调参 / 标定等**开发层**排错见 `dev_layer.md` §9。
+@@ -636,7 +640,7 @@ y  =       h2 ·W6ᵀ + b6    W6:[ 23,128]
+ 
+ ### 10.4 libonnx（xboot/libonnx）兼容性
+ 
+-**可以，已实测通过。** 所需算子在其支持表内为 √：`Gemm-13`（本模型 opset 18→Gemm-13；实现支持 alpha/beta/transA/transB 与 C 偏置）、`Elu-6`。
++**历史验证记录为通过。** 所需算子在其支持表内为 √：`Gemm-13`（本模型 opset 18→Gemm-13；实现支持 alpha/beta/transA/transB 与 C 偏置）、`Elu-6`。
+ 验证：`onnx_context_alloc_from_file` → `onnx_tensor_search("obs"/"actions")` → `onnx_run`，输入确定性模式，与 ORT 比对：
+ 
+ ```
+@@ -660,8 +664,8 @@ obs:[1,780]  actions:[1,23]   max|ORT-libonnx| = 7.153e-07 → MATCH
+ ## 11. 参考
+ 
+ - 总纲：`android_robot_controller_porting.md`（四层架构、三态、里程碑）
+-- L1 模块层：`module_layer.md`（`.ko` + 模块 + CPU 隔离）
+-- L3 应用层：`app_layer.md`（APK、stdio 遥测、内置 Zenoh Router、OTA）
++- L1 模块层：不在本仓库（`.ko` + 模块 + CPU 隔离）
++- L3 应用层：不在本仓库（APK、stdio 遥测、内置 Zenoh Router、OTA）
+ - L4 开发层：`dev_layer.md`（开发套件 `dev/`：pybind 主接口 + 调参/标定脚本 + host ROS2/rmw_zenoh + Termux/deb）
+ - 机器人栈：`robotd/{motors,imu,decouple,inference,zenoh,joystick,assets}`
+ - 模型画像/引擎兼容：见 §10（原 `onnx-policy-rpo-analysis.md` 已并入）
+diff --git a/docs/dev_layer.md b/docs/dev_layer.md
+index e694f07..34cd329 100644
+--- a/docs/dev_layer.md
++++ b/docs/dev_layer.md
+@@ -3,21 +3,24 @@
+ > 归属：四层架构 **L4 开发层**（L1 模块 / L2 部署 / L3 应用 / L4 开发），面向 **Termux 或 Ubuntu 上位机**，**不在设备**。
+ > 总纲见 `android_robot_controller_porting.md`；部署层见 `deploy_layer.md`。
+ > 定位：为机器人研发/调试提供 **pybind11 主接口** + 调参/标定/采集脚本；**不进设备投产**。
++>
++> 范围：L1/L3 不在本仓库。文中的“实测/已验证”是历史记录，本次文档更新没有重新上机复测。
+ 
+ ---
+ 
+ ## 1. 定位与边界
+ 
+-- **开发套件**：`dev/`，PC / Termux 专属，**不随 `robot_module.zip` 下发**。
+-- **主接口 = pybind11**：`motors_py` / `imu_py` / `robot_py`；Python 直接调用 `robot_deploy` 的 C++ 库。
+-- **只读复用 L2**：以 `-DROBOT_DEPLOY_DIR=robotd` 引用其静态库编译；`robot_deploy` 保持**纯 C++**，不含 Python。
++- **开发套件**：`dev/`，PC / Termux 专属，**不随部署包或 L1 模块包下发**。
++- **主接口 = pybind11**：`motors_py` / `imu_py` / `robot_py`；Python 直接调用 `robotd/` 的 C++ 库。
++- **只读复用 L2**：以 `-DROBOT_DEPLOY_DIR=robotd` 引用其静态库编译；`robotd/` 保持**纯 C++**，不含 Python。
+ - **职责划分**：
+ 
+   | 内容 | 归属 |
+   |---|---|
+   | pybind 绑定、调参/标定/采集 Python、dev 的 Termux/deb 打包 | `dev/`（本层） |
+   | 设备侧 shell 操作（CAN 波特率、IMU 初始化、置零/标定下发等） | `robotd/scripts/`（部署层，随设备） |
+-  | 生产 ELF（`robotd`/`joystick`）、`.ko`、Magisk/KSU 模块 | `robotd/` + 同级仓库 `android_deploy/module/` |
++  | 生产 ELF（`robotd`/`joystick`） | `robotd/` |
++  | `.ko`、Magisk/KSU 模块 | 独立的 L1 工程（不在本仓库） |
+ 
+ - **不进实时路径**：控制逻辑 100% 纯 C/C++；pybind/脚本仅用于配置、标定、采集与诊断。
+ 
+@@ -28,7 +31,7 @@
+ ```
+ dev/
+ ├── benchmarks/onnx-gemm/          # Gemm 编译参数与数值差异基准
+-├── CMakeLists.txt                 # 依赖 robot_deploy，编三个 pybind 模块
++├── CMakeLists.txt                 # 依赖 robotd/，编三个 pybind 模块
+ ├── pybind/                        # 绑定源（主接口）
+ │   ├── motors_py.cpp
+ │   ├── imu_py.cpp
+@@ -59,7 +62,7 @@ dev/
+ | `imu_py` | `IMUDriver` | `create_imu`、`get_imu_id`、`get_ang_vel`、`get_quat`、`get_lin_acc`、`get_temperature` |
+ | `robot_py` | `RobotInterface` | `is_init`、`init_motors`、`deinit_motors`、`reset_joints`、`set_zeros`、`clear_errors`、`read_joints`、`read_imu`、`refresh_joints`、`apply_action`、`get_joint_q/vel/tau`、`get_quat`、`get_ang_vel` |
+ 
+-> 绑定源在 `dev/pybind/*.cpp`，通过链接 `robot_deploy` 的 `motors`/`imu`/`robot_hw` 静态库实现。
++> 绑定源在 `dev/pybind/*.cpp`，通过链接 `robotd/` 的 `motors`/`imu`/`robot_hw` 静态库实现。
+ 
+ ---
+ 
+@@ -84,7 +87,7 @@ dev/
+ ## 5. 调用链与权限
+ 
+ ```
+-Termux/Ubuntu python ── import *_py ──► robot_deploy C++ 库 ── PF_CAN / tty ──► 硬件
++Termux/Ubuntu python ── import *_py ──► robotd/ C++ 库 ── PF_CAN / tty ──► 硬件
+         ▲                                        
+         └─ deb / build-pybind-termux.sh 安装模块与脚本
+ ```
+@@ -97,13 +100,13 @@ Termux/Ubuntu python ── import *_py ──► robot_deploy C++ 库 ── PF
+ 
+ ## 6. 构建与安装
+ 
+-> `robopoly_dev` 以子工程复用 `robot_deploy`，其依赖（eigen/zlib/yaml-cpp/spdlog/boost）由 **vcpkg** 提供
++> `robopoly_dev` 以子工程复用 `robotd/`，其依赖（eigen/zlib/yaml-cpp/spdlog/boost）由 **vcpkg** 提供
+ > （`dev/vcpkg.json`，工具链在 `robotd/vcpkg`）；本机 CMake 需注入 vcpkg 工具链。
+ 
+ ### 6.1 本机（Ubuntu，vcpkg）
+ 
+ ```sh
+-cd robot_deploy
++cd /path/to/robopoly
+ cmake -S dev -B build/robopoly-dev \
+   -DROBOT_DEPLOY_DIR=robotd \
+   -DCMAKE_TOOLCHAIN_FILE=robotd/vcpkg/scripts/buildsystems/vcpkg.cmake \
+@@ -116,7 +119,7 @@ cmake --build build/robopoly-dev --target motors_py imu_py robot_py -j
+ sudo dpkg -i build/robopoly-dev_*.deb
+ ```
+ 
+-实测产物 `build/robopoly-dev_0.1.0_amd64.deb`：`/usr/lib/python3/dist-packages/*.so`
++历史构建产物路径 `build/robopoly-dev_0.1.0_amd64.deb`：`/usr/lib/python3/dist-packages/*.so`
+ + `/usr/share/robopoly_dev/scripts/`。
+ 
+ ### 6.2 Termux（端上）
+@@ -160,22 +163,22 @@ makepkg -si          # 需在含同级 ../robotd 的 checkout 内运行
+ 
+ ---
+ 
+-## 7. 与 `robot_deploy` 的边界（重要）
++## 7. 与 `robotd/` 的边界（重要）
+ 
+-- `robopoly_dev` **只读**消费 `robot_deploy` 的头/静态库；不修改 L2 源码，不反向依赖。
++- `robopoly_dev` **只读**消费 `robotd/` 的头/静态库；不修改 L2 源码，不反向依赖。
+ - **设备操作 vs 调试工具**：
+   - **设备操作**（改硬件状态、烧写、置零、波特率）属于**部署层**，脚本放 `robotd/scripts/`：
+     `init_imu.sh`（IMU 波特率）、`set_zero.sh`（电机置零）、`deploy_motorlro_params.sh`（LRO 参数）——
+     均为 sh + can-utils，等价于本层 `scripts/` 的 pybind 工具（`set_zero.py`/`deploy_motorlro_params.py`）。
+   - **调试/研发**（Python 调参、回放、采集）属于**本层**，用 pybind 接口。
+-- 生产发布**只同步编译产物/模型**，不下发开发层（见 `app_layer.md` §5.2）。
++- 生产发布**只同步编译产物/模型**，不下发开发层（App 侧实现不在本仓库）。
+ 
+ ---
+ 
+ ## 8. 上位机 ROS2 接入（`rmw_zenoh`）
+ 
+ **zenoh 用于 L2↔上位机，且 App 可作 Router**：`robotd`(设备, zenoh-pico, client) 连 **App 内置 Zenoh Router**
+-（`zenoh-kotlin`，默认 `mode:router`、UI 开关，见 `app_layer.md §3.8/§8.8`）**或**上位机 `rmw_zenohd`（`ROS2 + rmw_zenoh`）。
++（`zenoh-kotlin`，默认 `mode:router`、UI 开关；App 实现不在本仓库）**或**上位机 `rmw_zenohd`（`ROS2 + rmw_zenoh`）。
+ **目标 distro：Jazzy/Rolling**（Humble 与新版 type hash 不兼容）。
+ 
+ ### 8.1 安装
+@@ -229,7 +232,7 @@ ros2 run rmw_zenoh_cpp rmw_zenohd        # router（供发现；默认 tcp/[::]:
+ ## 9. 依赖
+ 
+ - **编译**：`cmake`、`pybind11`、`python3-dev`、`libeigen3-dev`、`libspdlog-dev`、`libboost-dev`、`zlib1g-dev`；
+-  `robot_deploy` 的 vendored 第三方（`yaml-cpp`/`cnpy`/`libonnx`）随其源码编。
++  `robotd/` 的 vendored 第三方（`yaml-cpp`/`cnpy`/`libonnx`）随其源码编。
+ - **运行**：`python3`、`python3-numpy`、`python3-scipy`、`python3-yaml`、`can-utils`（`deploy_motorlro_params.py`）。
+ - **zenoh / ROS2（上位机）**：见 §8（`rmw_zenoh` + `rmw_zenohd`）。
+ 
+@@ -252,8 +255,8 @@ ros2 run rmw_zenoh_cpp rmw_zenohd        # router（供发现；默认 tcp/[::]:
+ ## 11. 参考
+ 
+ - 总纲：`android_robot_controller_porting.md`（四层架构）
+-- L1 模块层：`module_layer.md`（`.ko` + 模块 + CPU 隔离）
++- L1 模块层：不在本仓库（`.ko` + 模块 + CPU 隔离）
+ - L2 部署层：`deploy_layer.md`（控制核、依赖、打包边界）
+-- L3 应用层：`app_layer.md`（APK、IPC、OTA）
++- L3 应用层：不在本仓库（APK、IPC、OTA）
+ - 套件工程：`dev/`
+ - 设备操作脚本：`robotd/scripts/`
+diff --git a/docs/onnx-gemm-benchmark-2026-10-16.md b/docs/onnx-gemm-benchmark-2026-10-16.md
+index 27dc309..d79a0a8 100644
+--- a/docs/onnx-gemm-benchmark-2026-10-16.md
++++ b/docs/onnx-gemm-benchmark-2026-10-16.md
+@@ -4,7 +4,7 @@ Measured on 2026-10-16 with device `49f910e8`, SM7475, Android 15,
+ single thread pinned to CPU4 (Cortex-A710). Android NDK 26.3.11579264,
+ Clang 17.0.2, API 26. The existing deployed executables were not replaced.
+ 
+-The standalone benchmark uses the same libonnx commit pinned by robot_deploy:
++The standalone benchmark uses the same libonnx commit pinned by robopoly:
+ `e6129dab4149d1b38411080d929bbd30c59339e2`. All variants link identical common
+ object files. Only `src/default/Gemm.c` is compiled differently; no LTO.
+ 
+@@ -68,11 +68,12 @@ NaN/Inf/signed-zero semantics tests.
+ 
+ ## Reproduction
+ 
+-The tools now live in robot_deploy. Follow the
++The tools now live in robopoly. Follow the
+ [benchmark instructions](../dev/benchmarks/onnx-gemm/README.md).
+ The [archived measurements](benchmarks/sm7475-gemm-20261016.json) retain
+ the original timing runs, compiler flags, model hash, and numerical comparison.
+-The original local build and .f32 files remain in android_deploy/build/onnx-gemm-bench.
++The original local build and .f32 files were kept in a historical
++`android_deploy/build/onnx-gemm-bench` checkout; that tree is not part of this repository.
+ 
+ For the separate whole-engine batch measurement, see
+ [deployed inference measurements](benchmarks/sm7475-deployed-20261016.json).
+diff --git a/docs/sensor_hub.md b/docs/sensor_hub.md
+index c125949..b49ab4f 100644
+--- a/docs/sensor_hub.md
++++ b/docs/sensor_hub.md
+@@ -3,7 +3,6 @@
+ | 项目 | 内容 |
+ |---|---|
+ | 文档版本 | v0.1 |
+-| 日期 | 2026-11-11 |
+ | 状态 | 草案，待评审 |
+ | 目标 | 把 BMS、IMU、I2C 传感器、ADC/MOS 等外设做成可发现、可校验、可安装、可回滚的传感器/外设中心 |
+ | 关系 | 复用 robopoly Action Hub 的 Bundle、SHA256、缓存和 CLI 结构；分发改为闭源二进制授权 |
+@@ -11,6 +10,9 @@
+ > 本文档描述 **robopoly 的闭源/商业传感器分发**，不属于任何开源项目，
+ > 也不适用任何开源许可。源码不公开；编译后的 `.so` / `.bin` / `.ko`
+ > 与配置可以作为二进制包获取（公开或授权渠道）。
++>
++> 范围说明：App 实现不在本仓库；本文只把 App 侧行为写成目标约束。文中的
++> Release 名称、文件大小和联调结论是历史记录，本次文档更新没有重新验证发布资产或硬件。
+ 
+ ---
+ 
+@@ -20,7 +22,7 @@ robopoly 已经有四类与传感器/外设相关的能力：
+ 
+ - **robotd**：HIPNUC IMU、CAN 电机/总线、遥测。
+ - **robopoly-xiao**：TWS BMS、NST175、ATECC608A、CH224A、CH338F、ADC_48V、MOS、GD32 DFU。
+-- **robot_module**：`gs_usb`、`usbserial`、`ch341`、`cp210x`、`ftdi_sio` 等内核驱动模块。
++- **L1 内核模块**（不在本仓库）：`gs_usb`、`usbserial`、`ch341`、`cp210x`、`ftdi_sio` 等驱动模块。
+ - **App**：运维/诊断页、CAN 统计、IMU 遥测、模块状态、deploy 包 OTA。
+ 
+ 这些能力目前分散在文档、固件和驱动里，缺少统一入口。本计划把它们产品化成 **robopoly Sensor Hub**：
+@@ -34,17 +36,12 @@ Sensor Hub 不是“任意代码商城”。第一版只做**只读目录 + 状
+ 
+ ---
+ 
+-## 1.1 第一版已落地（2026-11-11）
++## 1.1 App 目标导航（实现不在本仓库）
+ 
+-App 已新增“传感器/外设”只读页面：
++目标导航为 **总览 / 交互 / 机器人 / 传感器 / 运维**；传感器页承载传感器/外设目录与状态，
++“设置”归在运维内，不单独占顶级入口。
+ 
+-- 入口：运维 → 诊断 → “打开传感器中心”
+-- 页面：`ui/screens/SensorCenterScreen.kt`
+-- 目录：`data/sensor/SensorCatalog.kt`
+-- 模型：`data/sensor/SensorModels.kt`
+-- 路由：`AppNavigation.kt` 的 `sensors`
+-
+-当前展示：
++SensorLab 展示：
+ 
+ | 分类 | 内容 | 状态来源 |
+ |---|---|---|
+@@ -55,14 +52,14 @@ App 已新增“传感器/外设”只读页面：
+ | I/O | CH338F、GD32 DFU、I2C 扫描、内核模块 | gateway / sysfs |
+ | 总线 | `can*` / `vcan*` | sysfs 实时 RX/TX/错误统计 |
+ 
+-第一版不加载任意驱动、不自动刷机、不写配置；BMS/I2C/48V 明确标注
++第一版目标是不加载任意驱动、不自动刷机、不写配置；BMS/I2C/48V 明确标注
+ “由 XIAO gateway 提供，App 暂不直连”，并给出 `gw ...` 命令供复制。
+ 
+ ---
+ 
+-## 1.2 Phase 1 已开始（2026-11-11）
++## 1.2 Phase 1 实现记录
+ 
+-已完成第一版 `robopoly sensor` CLI 与私有 mrepo 仓库骨架：
++本仓库已实现 `robopoly sensor` CLI 与私有 mrepo 仓库骨架（命令和校验以源码为准）：
+ 
+ - CLI：`sensor repo add/list/refresh/remove/verify/build` + `sensor search/info/install/verify/list/update/uninstall/doctor/apply/flash/rollback/path`
+ - 校验：`modules.json` zip `sha256` + 包内 `SHA256SUMS` 双重校验
+@@ -76,8 +73,9 @@ App 已新增“传感器/外设”只读页面：
+ - 统一索引：34 项（`xiao` 17 / `dev` 1 / `huggingface` 16），其中 XIAO D3 为 14 个板卡的 `xiao-firmware-v1.1.0`
+ - `modules.json` 使用 GitHub Release 二进制 URL；包内不含源码
+ 
+-本地 `file://` 仓库已完成 add/search/install/verify/list 冒烟；
+-远程 GitHub Release 已通过 GitHub API 回退验证：`repo add`、`search`、`install`、`verify` 均通过。
++本地 `file://` 仓库做过 add/search/install/verify/list 冒烟；远程 GitHub Release 的历史记录为
++通过 GitHub API 回退验证 `repo add`、`search`、`install`、`verify`。上述发布资产未在本次更新中复核；
++以实际 Release 和 `modules.json` 为准。
+ 
+ ---
+ 
+@@ -110,7 +108,7 @@ App 已新增“传感器/外设”只读页面：
+ | TWS BMS | XIAO 固件 | `robopoly,tws-bms` | 只能看状态/装配置；驱动在 XIAO |
+ | NST175 / ATECC608A / CH224A / CH338F | XIAO 固件 | `xiao-peripherals` I2C | 只能看状态/装配置 |
+ | ADC_48V / MOS / GD32 DFU | XIAO 固件 + gateway | `robopoly,adc-48v` / `load-switch` / `gd32-dfu` | 只能发命令/装配置 |
+-| `gs_usb` / `usbserial` 等 | Android 内核 | `robot_module` `.ko` | 需 root + 重启，不能热加载 |
++| `gs_usb` / `usbserial` 等 | Android 内核 | L1 `.ko`（不在本仓库） | 需 root + 重启，不能热加载 |
+ 
+ 结论：**“商城”必须按安装代价分层**，不能把 `.ko`、固件和 YAML 配置混成一个按钮。
+ 
+@@ -167,6 +165,7 @@ App 已新增“传感器/外设”只读页面：
+ 
+ ```text
+ sensor.yaml          # 元数据、兼容性、安全、许可证
++skill.md             # 目标必需（单数、非空）；本仓库当前尚未强制
+ README.md            # Model Card / 接线与使用说明
+ configs/             # 可选：YAML/JSON 配置
+ firmware/            # 可选：XIAO .bin / 其它固件
+@@ -187,6 +186,11 @@ LICENSE
+ 
+ **D2/D3 永远不自动执行。安装不等于使能，也不等于允许运行。**
+ 
++目标契约要求 action/sensor bundle 根部有非空单数 `skill.md`，并纳入 `SHA256SUMS`。
++**注意本仓库与 `robopoly` 仓库的差异**：`robopoly` 的校验器已强制该文件；
++**本仓库当前的 `bundle.py` / `sensor_bundle.py` 尚未强制，`sensor_bundles/` 也尚未包含
++`skill.md`**。在补齐前，不能把本仓库描述成“已强制 skill.md”。
++
+ ---
+ 
+ ## 5. `sensor.yaml` 规范
+@@ -324,6 +328,7 @@ zip 内的 `sensor.yaml` 对应 Magisk 的 `module.prop`。
+ 
+ ```text
+ sensor.yaml
++skill.md      # 目标必需；本仓库当前未包含/未强制
+ README.md
+ LICENSE
+ SHA256SUMS
+@@ -334,6 +339,7 @@ preview/      # 可选
+ ```
+ 
+ `SHA256SUMS` 覆盖 zip 内除自身外的所有文件；`modules.json` 的 `sha256` 覆盖 zip 本体。
++目标契约下 `skill.md` 也必须被覆盖；本仓库当前校验器不检查它。
+ 
+ ### 6.3 托管与首批
+ 
+@@ -392,14 +398,18 @@ robopoly sensor path tws-bms
+ 
+ - `repo add` 只保存索引，不下载 zip；gated 源需传 token。
+ - `search` / `info` 读索引。
+-- `install` 下载 zip → 校验 `modules.json.sha256` → 解压 → 校验 `SHA256SUMS` → 按 `installLevel` 处理。
+-- D1 写配置；D2/D3 使用独立命令并要求显式确认：
++- `install` 下载 zip → 校验 `modules.json.sha256` → 解压 → 校验 `SHA256SUMS` →
++  安装到 CLI 缓存；它不写 deploy 配置，也不执行驱动/固件。
++- D1 用 `plugin apply` 暂存/合并配置；D2/D3 用 `plugin flash` 并要求显式确认：
+ 
+ ```bash
+-robopoly sensor install-driver tws-bms
+-robopoly sensor flash tws-bms --port /dev/ttyUSB0 --yes
++robopoly plugin apply tws-bms --to <deploy>
++robopoly plugin flash <firmware-id> --allow-danger --yes \
++  --flash-command "esptool.py --chip esp32c6 -p {port} write_flash 0x0 {firmware}"
+ ```
+ 
++- App 私有目录里的插件 ZIP 安装是另一条路径：App 只解包并校验包内清单到私有目录，
++  不调用上面的 `apply`/`flash`，也不改变 L2 的 deploy 配置。
+ - 所有安装先校验；失败不覆盖旧版本。
+ - 私有 GitHub Release 在直连不可达时自动回退到 GitHub API 资产下载。
+ - `HF_ENDPOINT` 可作为二进制镜像源，canonical 仍是 repo URL。
+@@ -409,16 +419,21 @@ robopoly sensor flash tws-bms --port /dev/ttyUSB0 --yes
+ 
+ ## 8. App 集成
+ 
+-### 8.1 第一版（已完成）
++> App 实现不在本仓库。以下为对接约束，不表示对应 APK 已在本仓库验证。
+ 
+-- 只读目录 + 状态 + 可复制命令。
+-- IMU/CAN 实时；BMS/I2C/48V 标注 gateway 来源。
+-- 入口在运维/诊断，不新增底部 Tab。
++### 8.1 目标导航
++
++- 顶级导航：**总览 / 交互 / 机器人 / 传感器 / 运维**。
++- SensorLab 承载只读目录 + 状态 + 可复制命令；IMU/CAN 实时，BMS/I2C/48V 标注 gateway 来源。
++- 设置放在“运维”，不单独占顶级入口。
+ 
+ ### 8.2 第二版
+ 
+ - 读取 mrepo 索引和本地 sensor cache，显示“已安装配置/版本”。
+-- D1 配置安装：选择版本 → 校验 → 写入 deploy config → 重启 L2。
++- App 私有插件 ZIP 安装：选择版本 → 校验 `sensor.yaml` / `skill.md` / `SHA256SUMS` →
++  解压到 App 私有目录。这条路径不改 deploy 配置，也不执行驱动/固件。
++- D1 配置应用由 CLI `plugin apply` 负责：选择版本 → 校验 → 写入 deploy config →
++  重启 L2。它与 App 私有 ZIP 安装是两条独立路径。
+ - 状态探测：
+   - robotd：IMU、CAN、遥测。
+   - gateway UART：BMS、NST175、ADC、I2C 扫描。
+@@ -427,8 +442,10 @@ robopoly sensor flash tws-bms --port /dev/ttyUSB0 --yes
+ 
+ ### 8.3 第三版
+ 
+-- D2 内核驱动：下载 → 校验 → 提示 root/重启 → 安装 `robot_module.zip` 或 `.ko`。
++- D2 内核驱动：下载 → 校验 → 提示 root/重启 → 由 L1 侧安装模块包或 `.ko`
++  （L1 不在本仓库，本文不假设其脚本名）。
+ - D3 固件：XIAO 串口 OTA / GD32 DFU，必须二次确认、显示风险、失败回滚。
++- 固件/D2 的显式执行入口是 CLI `plugin flash`；App 私有 ZIP 安装不触发刷写。
+ - 安装完成不等于使能；传感器配置不得自动触发运动。
+ 
+ ### 8.4 数据通道
+@@ -547,12 +564,12 @@ robopoly plugin flash xiao-gateway-xiao_mg24 \
+ 
+ ## 11. 路线图
+ 
+-### Phase 0：只读目录（已完成）
++### Phase 0：只读目录（历史记录）
+ 
+ - App “传感器/外设”页
+ - IMU/CAN 实时状态
+ - BMS/I2C/48V 目录与命令
+-- 产物：`robopoly-1.0.0.apk`、`robot_module.zip`
++- 交付物位于 App/L1 仓库；本仓库不产出 APK 或模块包。
+ 
+ ### Phase 1：规范 + CLI + mrepo 仓库
+ 
+@@ -572,7 +589,7 @@ robopoly plugin flash xiao-gateway-xiao_mg24 \
+ 
+ ### Phase 3：驱动/固件受控安装
+ 
+-- D2 `robot_module.zip` / `.ko`
++- D2 L1 模块包 / `.ko`（打包不在本仓库）
+ - D3 XIAO 串口 OTA、GD32 DFU
+ - 失败回滚、审计、风险提示
+ 
+@@ -641,9 +658,11 @@ robopoly sensor rollback tws-bms
+ ### 15.2 App 入口
+ 
+ ```text
+-运维 → 诊断 → 打开传感器中心
++传感器 → SensorLab（传感器与外设）
+ ```
+ 
++“设置”也在运维内；顶级导航见 §1.1。
++
+ ### 15.3 首批建议
+ 
+ 优先上架 5 个：
+diff --git a/sensor_bundles/adc-48v/README.md b/sensor_bundles/adc-48v/README.md
+index 48f462c..55169b4 100644
+--- a/sensor_bundles/adc-48v/README.md
++++ b/sensor_bundles/adc-48v/README.md
+@@ -2,6 +2,8 @@
+ 
+ XIAO D0，标准 `robopoly,adc-48v`。
+ 
++目标契约要求包内 `skill.md`（单数、非空）并纳入 `SHA256SUMS`；本仓库当前尚未包含/校验该文件。安装/应用配置不会执行驱动或固件。
++
+ ```console
+ uart:~$ gw adc
+ ```
+diff --git a/sensor_bundles/hipnuc-imu/README.md b/sensor_bundles/hipnuc-imu/README.md
+index d180770..b830978 100644
+--- a/sensor_bundles/hipnuc-imu/README.md
++++ b/sensor_bundles/hipnuc-imu/README.md
+@@ -2,6 +2,8 @@
+ 
+ robotd 串口 IMU：`/dev/ttyUSB0`，921600。
+ 
++目标契约要求包内 `skill.md`（单数、非空）并纳入 `SHA256SUMS`；本仓库当前尚未包含/校验该文件。安装/应用配置不会执行驱动或固件。
++
+ ```console
+ $ robopoly sensor install hipnuc-imu@1.0.0
+ ```
+diff --git a/sensor_bundles/nst175/README.md b/sensor_bundles/nst175/README.md
+index fe82505..504ade2 100644
+--- a/sensor_bundles/nst175/README.md
++++ b/sensor_bundles/nst175/README.md
+@@ -2,6 +2,8 @@
+ 
+ XIAO gateway I2C D4/D5，地址 `0x48`。
+ 
++目标契约要求包内 `skill.md`（单数、非空）并纳入 `SHA256SUMS`；本仓库当前尚未包含/校验该文件。安装/应用配置不会执行驱动或固件。
++
+ ```console
+ uart:~$ gw temp
+ NST175: 27.437 C
+diff --git a/sensor_bundles/tws-bms/README.md b/sensor_bundles/tws-bms/README.md
+index 52e8331..a7e8aec 100644
+--- a/sensor_bundles/tws-bms/README.md
++++ b/sensor_bundles/tws-bms/README.md
+@@ -8,3 +8,5 @@ V=53.240V I=1.500A T=27.0C SoC=85.32% ...
+ ```
+ 
+ 只读配置包，不含驱动二进制；驱动在 robopoly-xiao 固件。
++
++目标契约要求包内 `skill.md`（单数、非空）并纳入 `SHA256SUMS`；本仓库当前尚未包含/校验该文件。安装/应用配置不会执行驱动或固件。
+diff --git a/tools/action_hub/space/README.md b/tools/action_hub/space/README.md
+index 9d03494..d75fb33 100644
+--- a/tools/action_hub/space/README.md
++++ b/tools/action_hub/space/README.md
+@@ -16,3 +16,10 @@ actions, inspect safety level and compatibility, and copy the install command.
+ 
+ The catalog is generated from the published action bundles. Installation never
+ enables motors or starts motion.
++
++Target contract: every action and sensor bundle contains a non-empty root-level
++`skill.md` (singular, not `skills/` or `SKILL.md`) covered by `SHA256SUMS`.
++This repository's validators and bundles do not enforce or include it yet; the
++`robopoly` repository does. App-private ZIP installation is a separate path from
++CLI `install` / `apply` / `flash`; installing a ZIP does not enable motors, write
++L2 deploy config, or flash firmware.

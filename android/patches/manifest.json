@@ -1,0 +1,23 @@
+[
+  {
+    "repository": "git@github.com:wentywenty/EtherCANFD.git",
+    "base": "5f083a8e9bea129df5b4cd7c1ebcfa5965375daf",
+    "patch": "EtherCANFD.patch",
+    "apply": "git apply --check EtherCANFD.patch && git apply EtherCANFD.patch",
+    "purpose": "Preserve local changes without modifying the upstream checkout"
+  },
+  {
+    "repository": "git@github.com:wentywenty/cannectivity.git",
+    "base": "53869cc42e93f214520b0a00dd138d5821d812c8",
+    "patch": "cannectivity.patch",
+    "apply": "git apply --check cannectivity.patch && git apply cannectivity.patch",
+    "purpose": "Preserve local changes without modifying the upstream checkout"
+  },
+  {
+    "repository": "git@github.com:wentywenty/robopoly-dev.git",
+    "base": "97811e27ac20f6a0f847ba38eb9c733b1c38a9e9",
+    "patch": "robopoly-dev.patch",
+    "apply": "git apply --check robopoly-dev.patch && git apply robopoly-dev.patch",
+    "purpose": "Preserve local changes without modifying the upstream checkout"
+  }
+]
